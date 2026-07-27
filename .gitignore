@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+*.db
+*.db-wal
+*.db-shm
+*.db.bak-*
+api-token
+.env

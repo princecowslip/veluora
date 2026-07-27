@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "description": "Seed dependency inventory. Tracks direct dependencies for SBOM generation per docs/45-required-packages-dependencies.md. Populate from Cargo.lock and tui/ dependencies as those land.",
+  "rust_dependencies": "see /Cargo.lock once generated",
+  "tui_dependencies": "see docs/45-required-packages-dependencies.md (not yet implemented)"
+}
