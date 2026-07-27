@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/domain",
+    "crates/database",
+    "crates/application",
+    "crates/local-api",
+    "crates/cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+domain = { path = "crates/domain" }
+database = { path = "crates/database" }
+application = { path = "crates/application" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+directories = "5"
+rand = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs"] }
+axum = "0.7"
+clap = { version = "4", features = ["derive"] }
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+
+[profile.dev]
+opt-level = 0
