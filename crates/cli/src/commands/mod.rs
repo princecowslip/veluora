@@ -21,6 +21,22 @@ fn print_summary(format: OutputFormat, quiet: bool, summary: &DiagnosticsSummary
             println!("  data dir:           {}", summary.data_dir);
             println!("  database:           {}", summary.db_path);
             println!("  applied migrations: {}", summary.applied_migrations);
+            println!(
+                "  ffprobe:            {}",
+                if summary.ffprobe_available {
+                    "found"
+                } else {
+                    "not found (video/audio probing disabled)"
+                }
+            );
+            println!(
+                "  ffmpeg:             {}",
+                if summary.ffmpeg_available {
+                    "found"
+                } else {
+                    "not found (video thumbnails disabled)"
+                }
+            );
             println!("  status:             ok");
         }
     }

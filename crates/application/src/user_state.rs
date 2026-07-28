@@ -1,9 +1,10 @@
 use domain::{ItemId, Progress, UserState};
 use rusqlite::{params, Row};
+use time::OffsetDateTime;
 
 use crate::context::AppContext;
 use crate::error::Result;
-use crate::time_format::from_rfc3339;
+use crate::time_format::{from_rfc3339, to_rfc3339};
 
 pub struct UserStateService;
 
@@ -33,6 +34,45 @@ impl UserStateService {
                 "INSERT INTO user_state (item_id, favorite) VALUES (?1, ?2)
                  ON CONFLICT(item_id) DO UPDATE SET favorite = excluded.favorite",
                 params![item_id.to_string(), favorite as i64],
+            )
+            .map_err(database::DatabaseError::from)?;
+        Self::get(ctx, item_id)
+    }
+
+    /// Sets `last_opened_at` to now — called whenever [`crate::playback::PlaybackService::resolve_open`]
+    /// resolves an item to open.
+    pub fn touch_last_opened(ctx: &AppContext, item_id: ItemId) -> Result<UserState> {
+        let now = to_rfc3339(OffsetDateTime::now_utc());
+        ctx.db
+            .connection()
+            .execute(
+                "INSERT INTO user_state (item_id, last_opened_at) VALUES (?1, ?2)
+                 ON CONFLICT(item_id) DO UPDATE SET last_opened_at = excluded.last_opened_at",
+                params![item_id.to_string(), now],
+            )
+            .map_err(database::DatabaseError::from)?;
+        Self::get(ctx, item_id)
+    }
+
+    /// Persists a playback/reading position and whether the item counts
+    /// as completed. Always marks `viewed = true` — recording any
+    /// progress implies the item has been opened.
+    pub fn set_progress(
+        ctx: &AppContext,
+        item_id: ItemId,
+        progress: &Progress,
+        completed: bool,
+    ) -> Result<UserState> {
+        let progress_json = serde_json::to_string(progress).unwrap_or_else(|_| "null".to_string());
+        ctx.db
+            .connection()
+            .execute(
+                "INSERT INTO user_state (item_id, progress_json, viewed, completed) VALUES (?1, ?2, 1, ?3)
+                 ON CONFLICT(item_id) DO UPDATE SET
+                     progress_json = excluded.progress_json,
+                     viewed = 1,
+                     completed = excluded.completed",
+                params![item_id.to_string(), progress_json, completed as i64],
             )
             .map_err(database::DatabaseError::from)?;
         Self::get(ctx, item_id)
@@ -103,6 +143,33 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1, "must upsert, not insert a second row");
+    }
+
+    #[test]
+    fn touch_last_opened_sets_the_timestamp() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        let item_id = insert_item(&ctx);
+
+        let before = UserStateService::get(&ctx, item_id).unwrap();
+        assert!(before.last_opened_at.is_none());
+
+        let after = UserStateService::touch_last_opened(&ctx, item_id).unwrap();
+        assert!(after.last_opened_at.is_some());
+    }
+
+    #[test]
+    fn set_progress_persists_progress_marks_viewed_and_sets_completed() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        let item_id = insert_item(&ctx);
+
+        let progress = Progress::TimeBased {
+            position_ms: 9_500,
+            duration_ms: Some(10_000),
+        };
+        let state = UserStateService::set_progress(&ctx, item_id, &progress, true).unwrap();
+        assert!(state.viewed);
+        assert!(state.completed);
+        assert_eq!(state.progress, Some(progress));
     }
 
     #[test]

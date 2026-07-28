@@ -135,6 +135,41 @@ mod tests {
     }
 
     #[test]
+    fn migration_0003_adds_story_documents_and_page_count() {
+        let db = Database::open_in_memory().expect("open");
+        let story_documents_exists: i64 = db
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'story_documents'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(story_documents_exists, 1);
+
+        db.connection()
+            .execute(
+                "INSERT INTO media_items (id, media_type, title, rating_classification, discovered_at, updated_at)
+                 VALUES ('44444444-4444-4444-4444-444444444444', 'story', 'A Story', 'unrated', datetime('now'), datetime('now'))",
+                [],
+            )
+            .unwrap();
+        db.connection()
+            .execute(
+                "INSERT INTO story_documents (item_id, format, sanitized_content_location, chapter_map)
+                 VALUES ('44444444-4444-4444-4444-444444444444', 'markdown', '/cache/stories/x.txt', '[]')",
+                [],
+            )
+            .unwrap();
+
+        // Referencing the new media_variants column fails at runtime if
+        // migration 0003 didn't actually add it.
+        db.connection()
+            .execute("UPDATE media_variants SET page_count = 10 WHERE 1 = 0", [])
+            .unwrap();
+    }
+
+    #[test]
     fn fts5_table_exists() {
         let db = Database::open_in_memory().expect("open");
         let count: i64 = db

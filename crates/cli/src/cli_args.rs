@@ -141,5 +141,42 @@ pub enum CollectionAction {
 
 #[derive(Subcommand)]
 pub enum ItemAction {
-    Show { item_id: String },
+    Show {
+        item_id: String,
+    },
+    /// Resolves what opening the item means (local path, resume
+    /// position, page count, or chapter map, depending on media type)
+    /// and, for video/audio, launches an external player unless
+    /// `--no-launch` is set.
+    Open {
+        item_id: String,
+        /// External player binary to launch for video/audio items.
+        #[arg(long)]
+        player: Option<String>,
+        /// Resolve only — never spawn a player process.
+        #[arg(long)]
+        no_launch: bool,
+    },
+    /// Records a playback/reading position.
+    Progress {
+        item_id: String,
+        /// A `domain::Progress` JSON object, e.g.
+        /// `{"progress_type":"time_based","position_ms":5000,"duration_ms":10000}`.
+        #[arg(long = "json")]
+        progress_json: String,
+        /// Overrides the auto-derived completion flag.
+        #[arg(long)]
+        completed: Option<bool>,
+    },
+    /// Lists a comic/manga item's pages.
+    Pages {
+        item_id: String,
+    },
+    /// Prints a story item's sanitized content.
+    Read {
+        item_id: String,
+        /// Print only this chapter, by its index in the chapter map.
+        #[arg(long)]
+        chapter: Option<u32>,
+    },
 }

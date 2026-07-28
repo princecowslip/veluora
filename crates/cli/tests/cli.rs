@@ -184,6 +184,180 @@ fn scan_search_favorite_and_item_show_end_to_end() {
 }
 
 #[test]
+fn item_open_no_launch_resolves_a_video_without_launching_a_player() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    std::fs::write(media.path().join("clip.mp4"), b"fake video bytes").unwrap();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd.arg("library").arg("scan").assert().success();
+
+    let mut search_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut search_cmd);
+    let output = search_cmd
+        .args(["--output", "json", "search", "type:video"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let item_id = json["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let mut open_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut open_cmd);
+    open_cmd
+        .args(["--output", "json", "item", "open", &item_id, "--no-launch"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"kind\":\"external_player\""));
+}
+
+#[test]
+fn item_progress_records_completion_past_the_threshold() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    std::fs::write(media.path().join("clip.mp4"), b"fake video bytes").unwrap();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd.arg("library").arg("scan").assert().success();
+
+    let mut search_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut search_cmd);
+    let output = search_cmd
+        .args(["--output", "json", "search", "type:video"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let item_id = json["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let mut progress_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut progress_cmd);
+    progress_cmd
+        .args([
+            "--output",
+            "json",
+            "item",
+            "progress",
+            &item_id,
+            "--json",
+            r#"{"progress_type":"time_based","position_ms":9500,"duration_ms":10000}"#,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"completed\":true"));
+}
+
+#[test]
+fn item_pages_lists_a_cbz_archive() {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    let cbz_path = media.path().join("book.cbz");
+    let file = std::fs::File::create(&cbz_path).unwrap();
+    let mut writer = zip::ZipWriter::new(file);
+    writer
+        .start_file("000.jpg", SimpleFileOptions::default())
+        .unwrap();
+    writer.write_all(b"page bytes").unwrap();
+    writer.finish().unwrap();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd.arg("library").arg("scan").assert().success();
+
+    let mut search_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut search_cmd);
+    let output = search_cmd
+        .args(["--output", "json", "search", "type:comic"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let item_id = json["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let mut pages_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut pages_cmd);
+    pages_cmd
+        .arg("item")
+        .arg("pages")
+        .arg(&item_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1 page(s)"));
+}
+
+#[test]
+fn item_read_prints_sanitized_story_content() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    std::fs::write(media.path().join("tale.md"), "# Once\nUpon a time.\n").unwrap();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd.arg("library").arg("scan").assert().success();
+
+    let mut search_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut search_cmd);
+    let output = search_cmd
+        .args(["--output", "json", "search", "type:story"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let item_id = json["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let mut read_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut read_cmd);
+    read_cmd
+        .arg("item")
+        .arg("read")
+        .arg(&item_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Upon a time."));
+}
+
+#[test]
 fn collection_create_list_and_item_membership() {
     let (mut cmd, home, media) = isolated_cmd_with_media_dir();
     std::fs::write(media.path().join("pic.png"), b"fake png bytes").unwrap();
