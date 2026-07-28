@@ -11,12 +11,22 @@ start with [`docs/01-product-vision.md`](docs/01-product-vision.md) and
 
 ## Status
 
-Implementation has just started. This tree currently covers **Milestone A —
-Foundation** from [`docs/46-implementation-plan.md`](docs/46-implementation-plan.md):
-repository/build setup, domain types, SQLite storage, a local API skeleton,
-and a CLI skeleton. Folder scanning, playback, the desktop GUI, connectors,
-the notcurses TUI, and plugins are later milestones and are not implemented
-yet.
+This tree covers Milestones A through D from
+[`docs/46-implementation-plan.md`](docs/46-implementation-plan.md):
+
+- **Milestone A — Foundation**: repository/build setup, domain types,
+  SQLite storage, a local API skeleton, and a CLI skeleton.
+- **Milestone B — Local library**: folder scanning, local search,
+  metadata, thumbnails, favorites, and collections.
+- **Milestone C — Media experience**: video/audio/comic/story probing
+  and thumbnailing (via FFmpeg and CBZ archive reading), playback
+  progress tracking, and an external-player launch path.
+- **Milestone D — Desktop MVP**: a functional-first desktop GUI
+  (`crates/gui`, built on [iced](https://iced.rs)) covering Onboarding,
+  Home, Library, Viewer, Privacy Center, and Settings.
+
+Connectors, the notcurses TUI, and plugins are later milestones and are
+not implemented yet.
 
 ## Repository layout
 
@@ -24,15 +34,16 @@ yet.
 crates/
 ├── domain/        # entities and pure domain logic (no I/O)
 ├── database/       # SQLite schema, migrations, FTS5
-├── application/     # thin services wiring domain + database
-├── local-api/        # loopback-only HTTP API (used by CLI/GUI/TUI)
-└── cli/               # the `veloura` command-line binary
-migrations/            # versioned SQL migration files
+├── media/           # FFmpeg probing, CBZ archives, story parsing, external players
+├── application/       # thin services wiring domain + database + media
+├── local-api/          # loopback-only HTTP API (used by CLI/GUI/TUI)
+├── cli/                 # the `veloura` command-line binary
+└── gui/                  # the desktop GUI (iced), `veloura-gui` binary
+migrations/                # versioned SQL migration files
 ```
 
-Later milestones add `crates/media`, `crates/search`,
-`crates/connectors/*`, `crates/plugin-host`, `crates/gui`, and a top-level
-`tui/` (C++20 + notcurses) — see
+Later milestones add `crates/search`, `crates/connectors/*`,
+`crates/plugin-host`, and a top-level `tui/` (C++20 + notcurses) — see
 [`docs/46-implementation-plan.md`](docs/46-implementation-plan.md) for the
 full sequence.
 
@@ -54,6 +65,9 @@ cargo run -p local-api
 # CLI
 cargo run -p cli -- doctor
 cargo run -p cli -- doctor --output json
+
+# Desktop GUI (links `application` directly, like the CLI — no local-api needed)
+cargo run -p gui
 ```
 
 ## Contributing

@@ -170,6 +170,26 @@ mod tests {
     }
 
     #[test]
+    fn migration_0004_adds_app_settings() {
+        let db = Database::open_in_memory().expect("open");
+        db.connection()
+            .execute(
+                "INSERT INTO app_settings (key, value) VALUES ('theme', 'dark')",
+                [],
+            )
+            .unwrap();
+        let value: String = db
+            .connection()
+            .query_row(
+                "SELECT value FROM app_settings WHERE key = 'theme'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "dark");
+    }
+
+    #[test]
     fn fts5_table_exists() {
         let db = Database::open_in_memory().expect("open");
         let count: i64 = db
