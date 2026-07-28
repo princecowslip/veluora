@@ -1,8 +1,11 @@
 pub mod collection;
+pub mod diagnostics;
 pub mod favorite;
 pub mod item;
 pub mod library;
 pub mod search;
+
+use std::path::PathBuf;
 
 use application::{AppContext, AppError, DiagnosticsService, DiagnosticsSummary};
 use serde::Serialize;
@@ -93,6 +96,57 @@ pub fn db_check(format: OutputFormat, quiet: bool) -> ExitCode {
         }
     }
     ExitCode::Success
+}
+
+pub fn db_backup(format: OutputFormat, quiet: bool, path: PathBuf) -> ExitCode {
+    let ctx = match open_context(format, quiet) {
+        Ok(ctx) => ctx,
+        Err(code) => return code,
+    };
+    match DiagnosticsService::export_backup(&ctx, &path) {
+        Ok(()) => {
+            match format {
+                OutputFormat::Json | OutputFormat::Jsonl => print_json(&serde_json::json!({
+                    "schema_version": 1,
+                    "ok": true,
+                    "path": path.display().to_string(),
+                })),
+                OutputFormat::Text | OutputFormat::Table => {
+                    if !quiet {
+                        println!("backup written to {}", path.display());
+                    }
+                }
+            }
+            ExitCode::Success
+        }
+        Err(err) => report_and_exit(format, quiet, &err),
+    }
+}
+
+pub fn db_restore(format: OutputFormat, quiet: bool, path: PathBuf) -> ExitCode {
+    let ctx = match open_context(format, quiet) {
+        Ok(ctx) => ctx,
+        Err(code) => return code,
+    };
+    match DiagnosticsService::restore_backup(&ctx, &path) {
+        Ok(()) => {
+            match format {
+                OutputFormat::Json | OutputFormat::Jsonl => {
+                    print_json(&serde_json::json!({ "schema_version": 1, "ok": true }))
+                }
+                OutputFormat::Text | OutputFormat::Table => {
+                    if !quiet {
+                        println!(
+                            "restored from {} — restart veloura to use the restored data",
+                            path.display()
+                        );
+                    }
+                }
+            }
+            ExitCode::Success
+        }
+        Err(err) => report_and_exit(format, quiet, &err),
+    }
 }
 
 /// Resolves the default `AppContext`, converting a failure directly into

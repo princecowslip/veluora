@@ -417,3 +417,130 @@ fn collection_create_list_and_item_membership() {
         .success()
         .stdout(predicate::str::contains("Later"));
 }
+
+#[test]
+fn diagnostics_bundle_omits_titles_and_prints_to_stdout() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    std::fs::write(media.path().join("clip.mp4"), b"fake video bytes").unwrap();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd.arg("library").arg("scan").assert().success();
+
+    let mut bundle_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut bundle_cmd);
+    bundle_cmd
+        .args(["diagnostics", "bundle"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"item_counts_by_media_type\""))
+        .stdout(predicate::str::contains("clip").not())
+        .stdout(predicate::str::contains(media.path().to_str().unwrap()).not());
+}
+
+#[test]
+fn diagnostics_bundle_writes_to_a_file_when_requested() {
+    let (mut cmd, _dir) = isolated_cmd();
+    let bundle_path = _dir.path().join("bundle.json");
+    cmd.args(["diagnostics", "bundle", "--file"])
+        .arg(&bundle_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("support bundle written to"));
+    assert!(bundle_path.exists());
+}
+
+#[test]
+fn db_backup_and_restore_round_trip() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    std::fs::write(media.path().join("clip.mp4"), b"fake video bytes").unwrap();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd.arg("library").arg("scan").assert().success();
+
+    let mut search_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut search_cmd);
+    let output = search_cmd
+        .args(["--output", "json", "search", "type:video"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let item_id = json["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let backup_path = home.path().join("backup.db");
+    let mut backup_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut backup_cmd);
+    backup_cmd
+        .arg("db")
+        .arg("backup")
+        .arg(&backup_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("backup written to"));
+    assert!(backup_path.exists());
+
+    // Change state after the backup...
+    let mut fav_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut fav_cmd);
+    fav_cmd
+        .arg("favorite")
+        .arg("add")
+        .arg(&item_id)
+        .assert()
+        .success();
+
+    // ...then restore, which must revert to the pre-backup state.
+    let mut restore_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut restore_cmd);
+    restore_cmd
+        .arg("db")
+        .arg("restore")
+        .arg(&backup_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("restart"));
+
+    let mut show_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut show_cmd);
+    show_cmd
+        .arg("item")
+        .arg("show")
+        .arg(&item_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("favorite: false"));
+}
+
+#[test]
+fn db_restore_rejects_an_invalid_backup_file() {
+    let (mut cmd, _dir) = isolated_cmd();
+    let bogus_path = _dir.path().join("bogus.db");
+    std::fs::write(&bogus_path, b"not a database").unwrap();
+    cmd.arg("db")
+        .arg("restore")
+        .arg(&bogus_path)
+        .assert()
+        .failure();
+}

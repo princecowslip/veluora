@@ -47,6 +47,11 @@ pub enum Command {
         #[command(subcommand)]
         action: DbAction,
     },
+    /// Diagnostics and support-bundle export.
+    Diagnostics {
+        #[command(subcommand)]
+        action: DiagnosticsAction,
+    },
     /// Local library folder management and scanning.
     Library {
         #[command(subcommand)]
@@ -81,6 +86,25 @@ pub enum Command {
 pub enum DbAction {
     /// Verify the database is reachable and migrations are applied.
     Check,
+    /// Hot-backs-up the live database to a file.
+    Backup { path: PathBuf },
+    /// Validates and restores from a backup file, replacing the live
+    /// database. Restart `veloura`/the GUI afterward — this only
+    /// replaces the file on disk, it doesn't affect an already-open
+    /// process.
+    Restore { path: PathBuf },
+}
+
+#[derive(Subcommand)]
+pub enum DiagnosticsAction {
+    /// Exports a redacted, aggregate-only diagnostic snapshot — no
+    /// titles, paths, tags, or notes. Prints to stdout unless `--file`
+    /// is given. (Named `--file`, not `--output`, since `--output`
+    /// is already the global text/json/jsonl/table format flag.)
+    Bundle {
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]

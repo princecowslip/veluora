@@ -9,6 +9,7 @@ pub mod migrations;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 
 use rusqlite::Connection;
 
@@ -75,6 +76,82 @@ impl Database {
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
                 row.get(0)
             })?)
+    }
+
+    /// Hot-backs-up the live database to `destination` using SQLite's
+    /// native online-backup API — safe to run against a WAL-mode
+    /// database that's actively being read/written, unlike a raw file
+    /// copy.
+    pub fn backup_to(&self, destination: &Path) -> Result<()> {
+        let mut dest_conn = Connection::open(destination)?;
+        let source = self.connection();
+        let backup = rusqlite::backup::Backup::new(&source, &mut dest_conn)?;
+        backup.run_to_completion(100, Duration::from_millis(50), None)?;
+        Ok(())
+    }
+
+    /// Validates `source` as a restorable backup (opens cleanly, passes
+    /// `PRAGMA integrity_check`, and doesn't claim a schema version
+    /// newer than this build understands), backs up the live database
+    /// at `db_path` first as a safety net, then copies `source` over it
+    /// — including removing stale `-wal`/`-shm` sidecar files left by
+    /// WAL mode. There's no in-process hot-swap of the live connection
+    /// this milestone: the caller must restart the process for the
+    /// restored data to take effect.
+    pub fn restore_from(source: &Path, db_path: &Path) -> Result<()> {
+        {
+            // Opened read-write (not the live DB — this is the candidate
+            // backup file): FTS5's integrity check needs to validate its
+            // shadow tables, which SQLite refuses to do against a
+            // read-only connection.
+            let source_conn = Connection::open(source)?;
+
+            let integrity: String =
+                source_conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+            if integrity != "ok" {
+                return Err(DatabaseError::Backup(format!(
+                    "backup failed integrity check: {integrity}"
+                )));
+            }
+
+            let max_version: Option<i64> = source_conn
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                    row.get(0)
+                })
+                .map_err(|_| {
+                    DatabaseError::Backup(
+                        "backup is not a valid Veloura database (missing schema_migrations table)"
+                            .to_string(),
+                    )
+                })?;
+            let max_version = max_version.unwrap_or(0);
+            if max_version > migrations::MIGRATIONS.len() as i64 {
+                return Err(DatabaseError::Backup(format!(
+                    "backup schema version {max_version} is newer than this build understands ({} known)",
+                    migrations::MIGRATIONS.len()
+                )));
+            }
+        }
+
+        if db_path.exists() {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let safety_backup = db_path.with_extension(format!("db.pre-restore-{stamp}"));
+            std::fs::copy(db_path, &safety_backup)?;
+        }
+
+        std::fs::copy(source, db_path)?;
+
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = PathBuf::from(format!("{}{suffix}", db_path.display()));
+            if sidecar.exists() {
+                std::fs::remove_file(sidecar)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -268,5 +345,83 @@ mod tests {
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().contains(".bak-"))
             .count()
+    }
+
+    #[test]
+    fn backup_to_and_restore_from_round_trips_the_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let live_path = dir.path().join("live.db");
+        let backup_path = dir.path().join("export.db");
+
+        {
+            let db = Database::open(&live_path).expect("open live");
+            db.connection()
+                .execute(
+                    "INSERT INTO media_items (id, media_type, title, rating_classification, discovered_at, updated_at)
+                     VALUES ('11111111-1111-1111-1111-111111111111', 'video', 'Backed Up', 'unrated', datetime('now'), datetime('now'))",
+                    [],
+                )
+                .unwrap();
+            db.backup_to(&backup_path).expect("backup");
+        }
+
+        // Simulate the live DB changing (or being lost) after the backup.
+        {
+            let db = Database::open(&live_path).expect("reopen live");
+            db.connection()
+                .execute("DELETE FROM media_items", [])
+                .unwrap();
+        }
+
+        Database::restore_from(&backup_path, &live_path).expect("restore");
+
+        let db = Database::open(&live_path).expect("reopen restored");
+        let title: String = db
+            .connection()
+            .query_row(
+                "SELECT title FROM media_items WHERE id = '11111111-1111-1111-1111-111111111111'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(title, "Backed Up");
+    }
+
+    #[test]
+    fn restore_from_rejects_a_backup_with_a_newer_schema_version_than_this_build_knows() {
+        let dir = tempfile::tempdir().unwrap();
+        let live_path = dir.path().join("live.db");
+        let future_backup_path = dir.path().join("future.db");
+
+        let _db = Database::open(&live_path).expect("open live");
+
+        {
+            let conn = Connection::open(&future_backup_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL);
+                 INSERT INTO schema_migrations (version, name, applied_at) VALUES (999, 'from_the_future', datetime('now'));",
+            )
+            .unwrap();
+        }
+
+        let err = Database::restore_from(&future_backup_path, &live_path).unwrap_err();
+        assert!(matches!(err, DatabaseError::Backup(_)));
+    }
+
+    #[test]
+    fn restore_from_rejects_a_file_that_is_not_a_veloura_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let live_path = dir.path().join("live.db");
+        let bogus_path = dir.path().join("bogus.db");
+
+        let _db = Database::open(&live_path).expect("open live");
+        {
+            let conn = Connection::open(&bogus_path).unwrap();
+            conn.execute_batch("CREATE TABLE unrelated (id INTEGER PRIMARY KEY);")
+                .unwrap();
+        }
+
+        let err = Database::restore_from(&bogus_path, &live_path).unwrap_err();
+        assert!(matches!(err, DatabaseError::Backup(_)));
     }
 }
