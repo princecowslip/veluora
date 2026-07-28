@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/domain",
     "crates/database",
+    "crates/media",
     "crates/application",
     "crates/local-api",
     "crates/cli",
@@ -16,6 +17,7 @@ publish = false
 [workspace.dependencies]
 domain = { path = "crates/domain" }
 database = { path = "crates/database" }
+media = { path = "crates/media" }
 application = { path = "crates/application" }
 
 serde = { version = "1", features = ["derive"] }
@@ -34,6 +36,7 @@ walkdir = "2"
 blake3 = "1"
 mime_guess = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+zip = "2"
 
 [profile.release]
 opt-level = 3

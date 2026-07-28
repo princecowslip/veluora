@@ -3,26 +3,32 @@
 //! Presentation layers call through here — never around it.
 
 pub mod collections;
+pub mod comics;
 pub mod context;
 pub mod diagnostics;
 pub mod error;
 pub mod items;
 pub mod library;
 pub mod media_classification;
+pub mod playback;
 pub mod scanner;
 pub mod search;
+pub mod stories;
 pub mod thumbnails;
 pub mod time_format;
 pub mod user_state;
 
 pub use collections::CollectionService;
+pub use comics::{ComicService, PageSummary};
 pub use context::AppContext;
 pub use diagnostics::{DiagnosticsService, DiagnosticsSummary};
 pub use error::{AppError, Result};
 pub use items::{ItemDetail, ItemService, VariantSummary};
 pub use library::{LibraryRootService, LibraryRootSummary, LibraryService, LibraryStatus};
+pub use playback::{OpenTarget, PlaybackService, COMPLETION_THRESHOLD};
 pub use scanner::{RootScanResult, ScanReport, ScanService, SkippedFile};
 pub use search::{SearchHit, SearchResults, SearchService};
+pub use stories::StoryService;
 pub use thumbnails::ThumbnailService;
 pub use user_state::UserStateService;
 

@@ -1,6 +1,4 @@
-//! Image thumbnail generation. Scoped to images only this milestone —
-//! video/audio/comic thumbnails need FFmpeg or archive extraction,
-//! neither of which is a dependency yet (Milestone C).
+//! Thumbnail generation for images, video frames, and comic pages.
 //!
 //! Storage path is versioned (`cache/thumbnails/v{VERSION}/...`) so
 //! bumping [`THUMBNAIL_SETTINGS_VERSION`] naturally invalidates every
@@ -8,6 +6,7 @@
 //! needed. Matches the `cache/thumbnails/` convention in
 //! `docs/17-downloads-cache-storage.md`.
 
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use domain::VariantId;
@@ -26,13 +25,65 @@ pub struct ThumbnailService;
 
 impl ThumbnailService {
     /// Returns the cache path for `variant_id`'s thumbnail, generating it
-    /// from `source_path` first if it doesn't already exist.
+    /// from `source_path` (an image file) first if it doesn't already
+    /// exist.
     pub fn ensure(ctx: &AppContext, variant_id: VariantId, source_path: &Path) -> Result<PathBuf> {
         let out_path = Self::cache_path(ctx, variant_id);
         if out_path.exists() {
             return Ok(out_path);
         }
-        generate(source_path, &out_path)?;
+        let source_size = std::fs::metadata(source_path)?.len();
+        if source_size > MAX_SOURCE_BYTES {
+            return Err(AppError::InvalidPath(format!(
+                "{} exceeds the {MAX_SOURCE_BYTES}-byte thumbnail source limit",
+                source_path.display()
+            )));
+        }
+        let bytes = std::fs::read(source_path)?;
+        generate_from_bytes(&bytes, &out_path)?;
+        Ok(out_path)
+    }
+
+    /// Generates `variant_id`'s thumbnail from a frame extracted a few
+    /// seconds into the video at `source_path`, via `ffmpeg`. Best-effort
+    /// — returns [`AppError::InvalidPath`] if `ffmpeg` is missing, the
+    /// video is too short to seek into, or the frame can't be decoded.
+    pub fn ensure_video_frame(
+        ctx: &AppContext,
+        variant_id: VariantId,
+        source_path: &Path,
+    ) -> Result<PathBuf> {
+        let out_path = Self::cache_path(ctx, variant_id);
+        if out_path.exists() {
+            return Ok(out_path);
+        }
+        let bytes = media::extract_frame_png(source_path).ok_or_else(|| {
+            AppError::InvalidPath(format!(
+                "could not extract a video frame from {}",
+                source_path.display()
+            ))
+        })?;
+        generate_from_bytes(&bytes, &out_path)?;
+        Ok(out_path)
+    }
+
+    /// Generates `variant_id`'s thumbnail from a comic archive's page 0.
+    pub fn ensure_comic_page(
+        ctx: &AppContext,
+        variant_id: VariantId,
+        archive_path: &Path,
+    ) -> Result<PathBuf> {
+        let out_path = Self::cache_path(ctx, variant_id);
+        if out_path.exists() {
+            return Ok(out_path);
+        }
+        let bytes = media::read_page(archive_path, 0).map_err(|e| {
+            AppError::InvalidPath(format!(
+                "could not read page 0 of {}: {e}",
+                archive_path.display()
+            ))
+        })?;
+        generate_from_bytes(&bytes, &out_path)?;
         Ok(out_path)
     }
 
@@ -50,24 +101,21 @@ impl ThumbnailService {
     }
 }
 
-fn generate(source_path: &Path, out_path: &Path) -> Result<()> {
-    let source_size = std::fs::metadata(source_path)?.len();
-    if source_size > MAX_SOURCE_BYTES {
-        return Err(AppError::InvalidPath(format!(
-            "{} exceeds the {MAX_SOURCE_BYTES}-byte thumbnail source limit",
-            source_path.display()
-        )));
-    }
-
-    let mut reader = ImageReader::open(source_path)?;
+/// Decodes, bounds-checks, resizes, and re-encodes a thumbnail from an
+/// in-memory image buffer — shared by the image, video-frame, and
+/// comic-page generation paths above.
+fn generate_from_bytes(bytes: &[u8], out_path: &Path) -> Result<()> {
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| AppError::InvalidPath(format!("could not guess image format: {e}")))?;
     let mut limits = Limits::default();
     limits.max_image_width = Some(20_000);
     limits.max_image_height = Some(20_000);
     limits.max_alloc = Some(256 * 1024 * 1024);
     reader.limits(limits);
-    let image = reader.decode().map_err(|e| {
-        AppError::InvalidPath(format!("could not decode {}: {e}", source_path.display()))
-    })?;
+    let image = reader
+        .decode()
+        .map_err(|e| AppError::InvalidPath(format!("could not decode thumbnail source: {e}")))?;
 
     // Never upscale: only resize when the source actually exceeds the cap.
     let thumbnail = if image.width() > MAX_DIMENSION || image.height() > MAX_DIMENSION {
@@ -182,5 +230,39 @@ mod tests {
         let variant_id = VariantId::new();
         let err = ThumbnailService::ensure(&ctx, variant_id, &src_path).unwrap_err();
         assert!(matches!(err, AppError::InvalidPath(_)));
+    }
+
+    #[test]
+    fn ensure_comic_page_thumbnails_the_first_page_of_a_cbz() {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+
+        let (ctx, _ctx_dir) = test_ctx();
+        let src_dir = tempfile::tempdir().unwrap();
+        let cbz_path = src_dir.path().join("book.cbz");
+
+        let mut page_png = Vec::new();
+        write_test_png_to(&mut page_png, 300, 200);
+
+        let file = std::fs::File::create(&cbz_path).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        writer
+            .start_file("000.png", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(&page_png).unwrap();
+        writer.finish().unwrap();
+
+        let variant_id = VariantId::new();
+        let out_path = ThumbnailService::ensure_comic_page(&ctx, variant_id, &cbz_path).unwrap();
+        assert!(out_path.exists());
+        let (w, h) = image::image_dimensions(&out_path).unwrap();
+        assert_eq!((w, h), (300, 200));
+    }
+
+    fn write_test_png_to(buf: &mut Vec<u8>, width: u32, height: u32) {
+        let img = image::RgbImage::from_pixel(width, height, image::Rgb([10, 20, 30]));
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut Cursor::new(buf), image::ImageFormat::Png)
+            .unwrap();
     }
 }

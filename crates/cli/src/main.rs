@@ -55,6 +55,20 @@ fn main() {
         },
         Command::Item { action } => match action {
             ItemAction::Show { item_id } => commands::item::show(format, quiet, item_id),
+            ItemAction::Open {
+                item_id,
+                player,
+                no_launch,
+            } => commands::item::open(format, quiet, item_id, player, no_launch),
+            ItemAction::Progress {
+                item_id,
+                progress_json,
+                completed,
+            } => commands::item::progress(format, quiet, item_id, progress_json, completed),
+            ItemAction::Pages { item_id } => commands::item::pages(format, quiet, item_id),
+            ItemAction::Read { item_id, chapter } => {
+                commands::item::read(format, quiet, item_id, chapter)
+            }
         },
     };
 

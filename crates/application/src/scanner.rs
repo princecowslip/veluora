@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use domain::{ItemId, LibraryRoot, LibraryRootId, MediaType, VariantId};
+use domain::{ItemId, LibraryRoot, LibraryRootId, MediaType, StoryFormat, VariantId};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -21,6 +21,7 @@ use crate::context::AppContext;
 use crate::error::{AppError, Result};
 use crate::library::LibraryRootService;
 use crate::media_classification::{classify, is_ignored_filename, media_type_to_str};
+use crate::stories::StoryService;
 use crate::thumbnails::ThumbnailService;
 use crate::time_format::to_rfc3339;
 
@@ -118,6 +119,7 @@ enum FileOutcome {
 
 struct ExistingVariant {
     id: VariantId,
+    item_id: ItemId,
     local_path: Option<String>,
     file_size: Option<u64>,
     mtime_unix: Option<i64>,
@@ -232,7 +234,7 @@ fn process_file(
             format,
             now,
         )?;
-        maybe_probe_and_thumbnail(ctx, media_type, existing.id, path);
+        maybe_probe_and_thumbnail(ctx, media_type, existing.item_id, existing.id, format, path);
         return Ok(FileOutcome::Updated);
     }
 
@@ -244,7 +246,7 @@ fn process_file(
             .unwrap_or(false);
         if !old_path_still_exists {
             relink_variant(ctx, existing.id, root.id, &path_str, file_size, mtime, now)?;
-            maybe_probe_and_thumbnail(ctx, media_type, existing.id, path);
+            maybe_probe_and_thumbnail(ctx, media_type, existing.item_id, existing.id, format, path);
             return Ok(FileOutcome::Moved);
         }
     }
@@ -254,7 +256,7 @@ fn process_file(
         .and_then(|s| s.to_str())
         .unwrap_or("Untitled")
         .to_string();
-    let (_item_id, variant_id) = insert_new_item_and_variant(
+    let (item_id, variant_id) = insert_new_item_and_variant(
         ctx,
         &title,
         media_type,
@@ -267,27 +269,78 @@ fn process_file(
         &content_hash,
         now,
     )?;
-    maybe_probe_and_thumbnail(ctx, media_type, variant_id, path);
+    maybe_probe_and_thumbnail(ctx, media_type, item_id, variant_id, format, path);
     Ok(FileOutcome::Added)
 }
 
-/// Header-only dimension probe and thumbnail generation for images.
-/// Video/audio/comic probing needs FFmpeg/archive extraction, neither of
-/// which exist yet — deferred to Milestone C. Failures here are
-/// best-effort: they never fail the scan.
+/// Per-type probing and thumbnail generation, run after every add/update/
+/// move. Every branch is best-effort: probing tools that aren't
+/// installed, corrupt files, or archives that fail safety checks never
+/// fail the scan — they just leave that variant's metadata unpopulated,
+/// same as always been true for images here.
 fn maybe_probe_and_thumbnail(
     ctx: &AppContext,
     media_type: MediaType,
+    item_id: ItemId,
     variant_id: VariantId,
+    format: &str,
     path: &Path,
 ) {
-    if media_type != MediaType::Image {
-        return;
+    match media_type {
+        MediaType::Image => {
+            if let Ok((width, height)) = image::image_dimensions(path) {
+                let _ = update_variant_dimensions(ctx, variant_id, width, height);
+            }
+            let _ = ThumbnailService::ensure(ctx, variant_id, path);
+        }
+        MediaType::Video => {
+            if let Some(probe) = media::probe(path) {
+                let _ = update_variant_probe(
+                    ctx,
+                    variant_id,
+                    probe.width,
+                    probe.height,
+                    probe.duration_ms,
+                    probe.bitrate,
+                );
+            }
+            let _ = ThumbnailService::ensure_video_frame(ctx, variant_id, path);
+        }
+        MediaType::Audio => {
+            if let Some(probe) = media::probe(path) {
+                let _ = update_variant_probe(
+                    ctx,
+                    variant_id,
+                    None,
+                    None,
+                    probe.duration_ms,
+                    probe.bitrate,
+                );
+            }
+        }
+        MediaType::Comic | MediaType::Manga => {
+            if let Ok(pages) = media::list_pages(path) {
+                let _ = update_variant_page_count(ctx, variant_id, pages.len() as u32);
+            }
+            let _ = ThumbnailService::ensure_comic_page(ctx, variant_id, path);
+        }
+        MediaType::Story => {
+            // EPUB stays classified but unread this milestone (out of
+            // scope) — only plain text and Markdown get ingested.
+            if let Some(story_format) = story_format_for(format) {
+                let _ = StoryService::ensure(ctx, item_id, story_format, path);
+            }
+        }
+        MediaType::Gallery | MediaType::Other => {}
     }
-    if let Ok((width, height)) = image::image_dimensions(path) {
-        let _ = update_variant_dimensions(ctx, variant_id, width, height);
+}
+
+fn story_format_for(format: &str) -> Option<StoryFormat> {
+    match format {
+        "md" => Some(StoryFormat::Markdown),
+        "txt" => Some(StoryFormat::PlainText),
+        _ => None,
     }
-    let _ = ThumbnailService::ensure(ctx, variant_id, path);
 }
 
 fn mtime_unix(metadata: &std::fs::Metadata) -> Option<i64> {
@@ -308,7 +361,7 @@ fn hash_file(path: &Path) -> std::result::Result<String, std::io::Error> {
 fn find_variant_by_path(ctx: &AppContext, path_str: &str) -> Result<Option<ExistingVariant>> {
     query_existing_variant(
         ctx,
-        "SELECT id, local_path, file_size, mtime_unix FROM media_variants WHERE local_path = ?1 LIMIT 1",
+        "SELECT id, item_id, local_path, file_size, mtime_unix FROM media_variants WHERE local_path = ?1 LIMIT 1",
         params![path_str],
     )
 }
@@ -316,7 +369,7 @@ fn find_variant_by_path(ctx: &AppContext, path_str: &str) -> Result<Option<Exist
 fn find_variant_by_hash(ctx: &AppContext, hash: &str) -> Result<Option<ExistingVariant>> {
     query_existing_variant(
         ctx,
-        "SELECT id, local_path, file_size, mtime_unix FROM media_variants WHERE content_hash = ?1 LIMIT 1",
+        "SELECT id, item_id, local_path, file_size, mtime_unix FROM media_variants WHERE content_hash = ?1 LIMIT 1",
         params![hash],
     )
 }
@@ -329,11 +382,13 @@ fn query_existing_variant(
     let conn = ctx.db.connection();
     let result = conn.query_row(sql, params, |row| {
         let id_str: String = row.get(0)?;
+        let item_id_str: String = row.get(1)?;
         Ok(ExistingVariant {
             id: VariantId(Uuid::parse_str(&id_str).unwrap_or_default()),
-            local_path: row.get(1)?,
-            file_size: row.get::<_, Option<i64>>(2)?.map(|v| v as u64),
-            mtime_unix: row.get(3)?,
+            item_id: ItemId(Uuid::parse_str(&item_id_str).unwrap_or_default()),
+            local_path: row.get(2)?,
+            file_size: row.get::<_, Option<i64>>(3)?.map(|v| v as u64),
+            mtime_unix: row.get(4)?,
         })
     });
     match result {
@@ -409,6 +464,54 @@ fn update_variant_dimensions(
         .execute(
             "UPDATE media_variants SET width = ?1, height = ?2 WHERE id = ?3",
             params![width, height, variant_id.to_string()],
+        )
+        .map_err(database::DatabaseError::from)?;
+    Ok(())
+}
+
+/// Applies an `ffprobe` result to a variant. Each field is only
+/// overwritten when the probe actually produced a value (`COALESCE`),
+/// so an audio probe (no width/height) doesn't clobber a value another
+/// pass might have set.
+fn update_variant_probe(
+    ctx: &AppContext,
+    variant_id: VariantId,
+    width: Option<u32>,
+    height: Option<u32>,
+    duration_ms: Option<u64>,
+    bitrate: Option<u64>,
+) -> Result<()> {
+    ctx.db
+        .connection()
+        .execute(
+            "UPDATE media_variants SET
+                width = COALESCE(?1, width),
+                height = COALESCE(?2, height),
+                duration_ms = COALESCE(?3, duration_ms),
+                bitrate = COALESCE(?4, bitrate)
+             WHERE id = ?5",
+            params![
+                width,
+                height,
+                duration_ms.map(|d| d as i64),
+                bitrate.map(|b| b as i64),
+                variant_id.to_string(),
+            ],
+        )
+        .map_err(database::DatabaseError::from)?;
+    Ok(())
+}
+
+fn update_variant_page_count(
+    ctx: &AppContext,
+    variant_id: VariantId,
+    page_count: u32,
+) -> Result<()> {
+    ctx.db
+        .connection()
+        .execute(
+            "UPDATE media_variants SET page_count = ?1 WHERE id = ?2",
+            params![page_count, variant_id.to_string()],
         )
         .map_err(database::DatabaseError::from)?;
     Ok(())
@@ -597,7 +700,12 @@ mod tests {
 
     #[test]
     fn deleting_a_file_marks_it_missing_without_deleting_the_item() {
-        let ctx = AppContext::open_in_memory().unwrap();
+        // A real filesystem data_dir: this file classifies as a Story
+        // (`.txt`), which triggers StoryService::ensure and writes a
+        // cache file — open_in_memory()'s `:memory:` placeholder path
+        // would create a literal `./:memory:/` directory on disk.
+        let data_dir = tempfile::tempdir().unwrap();
+        let ctx = AppContext::open_at(data_dir.path()).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("story.txt");
         std::fs::write(&path, b"once upon a time").unwrap();
@@ -646,6 +754,84 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = ScanService::scan_path(&ctx, dir.path()).unwrap_err();
         assert!(matches!(err, AppError::NotFound(_)));
+    }
+
+    #[test]
+    fn scanning_a_cbz_populates_page_count_and_a_thumbnail() {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+
+        let data_dir = tempfile::tempdir().unwrap();
+        let ctx = AppContext::open_at(data_dir.path()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cbz_path = dir.path().join("book.cbz");
+
+        let mut page_png = Vec::new();
+        let img = image::RgbImage::from_pixel(64, 48, image::Rgb([1, 2, 3]));
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(
+                &mut std::io::Cursor::new(&mut page_png),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+
+        let file = std::fs::File::create(&cbz_path).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        writer.start_file("000.png", options).unwrap();
+        writer.write_all(&page_png).unwrap();
+        writer.start_file("001.png", options).unwrap();
+        writer.write_all(&page_png).unwrap();
+        writer.finish().unwrap();
+
+        LibraryRootService::add(&ctx, dir.path(), None).unwrap();
+        let report = ScanService::scan_path(&ctx, dir.path()).unwrap();
+        assert_eq!(report.roots[0].added, 1);
+
+        let (page_count, variant_id_str): (Option<i64>, String) = ctx
+            .db
+            .connection()
+            .query_row(
+                "SELECT page_count, id FROM media_variants LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(page_count, Some(2));
+
+        let variant_id = VariantId(Uuid::parse_str(&variant_id_str).unwrap());
+        let thumb_path = ThumbnailService::cache_path(&ctx, variant_id);
+        assert!(
+            thumb_path.exists(),
+            "expected a comic-page thumbnail to be generated"
+        );
+    }
+
+    #[test]
+    fn scanning_a_markdown_story_persists_a_story_document() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let ctx = AppContext::open_at(data_dir.path()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("tale.md"), "# Once\nUpon a time.\n").unwrap();
+        LibraryRootService::add(&ctx, dir.path(), None).unwrap();
+
+        let report = ScanService::scan_path(&ctx, dir.path()).unwrap();
+        assert_eq!(report.roots[0].added, 1);
+
+        let item_id_str: String = ctx
+            .db
+            .connection()
+            .query_row("SELECT id FROM media_items", [], |r| r.get(0))
+            .unwrap();
+        let item_id = ItemId(Uuid::parse_str(&item_id_str).unwrap());
+
+        let doc = StoryService::get(&ctx, item_id).unwrap();
+        assert!(
+            doc.is_some(),
+            "expected a story_documents row after scanning a .md file"
+        );
+        let content = StoryService::read_content(&ctx, item_id).unwrap();
+        assert!(content.contains("Upon a time."));
     }
 
     #[test]
