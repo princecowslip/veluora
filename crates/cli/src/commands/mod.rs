@@ -1,4 +1,10 @@
-use application::{AppContext, DiagnosticsService, DiagnosticsSummary};
+pub mod collection;
+pub mod favorite;
+pub mod item;
+pub mod library;
+pub mod search;
+
+use application::{AppContext, AppError, DiagnosticsService, DiagnosticsSummary};
 use serde::Serialize;
 
 use crate::cli_args::OutputFormat;
@@ -6,12 +12,7 @@ use crate::exit_code::ExitCode;
 
 fn print_summary(format: OutputFormat, quiet: bool, summary: &DiagnosticsSummary) {
     match format {
-        OutputFormat::Json | OutputFormat::Jsonl => {
-            println!(
-                "{}",
-                serde_json::to_string(summary).expect("serialize diagnostics summary")
-            );
-        }
+        OutputFormat::Json | OutputFormat::Jsonl => print_json(summary),
         OutputFormat::Text | OutputFormat::Table => {
             if quiet {
                 return;
@@ -26,9 +27,9 @@ fn print_summary(format: OutputFormat, quiet: bool, summary: &DiagnosticsSummary
 }
 
 pub fn doctor(format: OutputFormat, quiet: bool) -> ExitCode {
-    let ctx = match AppContext::open_default() {
+    let ctx = match open_context(format, quiet) {
         Ok(ctx) => ctx,
-        Err(err) => return report_and_exit(format, quiet, &err),
+        Err(code) => return code,
     };
     match DiagnosticsService::summary(&ctx) {
         Ok(summary) => {
@@ -48,9 +49,9 @@ struct DbCheckOutput {
 }
 
 pub fn db_check(format: OutputFormat, quiet: bool) -> ExitCode {
-    let ctx = match AppContext::open_default() {
+    let ctx = match open_context(format, quiet) {
         Ok(ctx) => ctx,
-        Err(err) => return report_and_exit(format, quiet, &err),
+        Err(code) => return code,
     };
     let applied_migrations = match ctx.db.applied_migration_count() {
         Ok(count) => count,
@@ -65,12 +66,7 @@ pub fn db_check(format: OutputFormat, quiet: bool) -> ExitCode {
     };
 
     match format {
-        OutputFormat::Json | OutputFormat::Jsonl => {
-            println!(
-                "{}",
-                serde_json::to_string(&output).expect("serialize db check output")
-            );
-        }
+        OutputFormat::Json | OutputFormat::Jsonl => print_json(&output),
         OutputFormat::Text | OutputFormat::Table => {
             if !quiet {
                 println!(
@@ -83,22 +79,52 @@ pub fn db_check(format: OutputFormat, quiet: bool) -> ExitCode {
     ExitCode::Success
 }
 
-fn report_and_exit(format: OutputFormat, quiet: bool, err: &application::AppError) -> ExitCode {
-    let code = ExitCode::from(err);
+/// Resolves the default `AppContext`, converting a failure directly into
+/// an already-reported `ExitCode` — the common first line of every
+/// command below.
+pub(crate) fn open_context(
+    format: OutputFormat,
+    quiet: bool,
+) -> std::result::Result<AppContext, ExitCode> {
+    AppContext::open_default().map_err(|err| report_and_exit(format, quiet, &err))
+}
+
+pub(crate) fn print_json<T: Serialize>(value: &T) {
+    println!(
+        "{}",
+        serde_json::to_string(value).expect("serialize command output")
+    );
+}
+
+pub(crate) fn print_error_message(format: OutputFormat, quiet: bool, message: &str) {
     match format {
         OutputFormat::Json | OutputFormat::Jsonl => {
-            let payload = serde_json::json!({
-                "schema_version": 1,
-                "ok": false,
-                "error": err.to_string(),
-            });
-            println!("{payload}");
+            print_json(&serde_json::json!({ "schema_version": 1, "ok": false, "error": message }))
         }
         OutputFormat::Text | OutputFormat::Table => {
             if !quiet {
-                eprintln!("error: {err}");
+                eprintln!("error: {message}");
             }
         }
     }
-    code
+}
+
+pub(crate) fn report_and_exit(format: OutputFormat, quiet: bool, err: &AppError) -> ExitCode {
+    print_error_message(format, quiet, &err.to_string());
+    ExitCode::from(err)
+}
+
+/// Parses a UUID-shaped CLI argument (item/collection/root id), reporting
+/// and converting a parse failure into `ExitCode::InvalidArguments`
+/// through the same error-reporting path as every other failure.
+pub(crate) fn parse_uuid_arg(
+    format: OutputFormat,
+    quiet: bool,
+    label: &str,
+    raw: &str,
+) -> std::result::Result<uuid::Uuid, ExitCode> {
+    uuid::Uuid::parse_str(raw).map_err(|_| {
+        print_error_message(format, quiet, &format!("invalid {label}: '{raw}'"));
+        ExitCode::InvalidArguments
+    })
 }

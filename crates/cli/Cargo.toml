@@ -10,11 +10,14 @@ path = "src/main.rs"
 
 [dependencies]
 application.workspace = true
+domain.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
 tempfile.workspace = true
+database.workspace = true

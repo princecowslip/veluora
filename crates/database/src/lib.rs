@@ -85,7 +85,10 @@ mod tests {
     #[test]
     fn opens_in_memory_and_applies_migrations() {
         let db = Database::open_in_memory().expect("open");
-        assert_eq!(db.applied_migration_count().unwrap(), 1);
+        assert_eq!(
+            db.applied_migration_count().unwrap(),
+            migrations::MIGRATIONS.len() as i64
+        );
     }
 
     #[test]
@@ -100,6 +103,35 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn migration_0002_adds_library_roots_and_hashing_columns() {
+        let db = Database::open_in_memory().expect("open");
+        let library_roots_exists: i64 = db
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'library_roots'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(library_roots_exists, 1);
+
+        db.connection()
+            .execute(
+                "INSERT INTO library_roots (id, path, enabled, created_at) VALUES ('r1', '/tmp/x', 1, datetime('now'))",
+                [],
+            )
+            .unwrap();
+        // Referencing the new media_variants columns fails at runtime if
+        // migration 0002 didn't actually add them.
+        db.connection()
+            .execute(
+                "UPDATE media_variants SET content_hash = 'abc', last_seen_at = datetime('now'), library_root_id = 'r1' WHERE 1 = 0",
+                [],
+            )
+            .unwrap();
     }
 
     #[test]
@@ -163,11 +195,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("veloura.db");
         {
-            // First open applies migration 1, producing exactly one backup.
+            // First open applies every migration, producing one backup per
+            // migration applied.
             let _db = Database::open(&db_path).expect("open");
         }
         let backups_after_first_open = count_backups(dir.path());
-        assert_eq!(backups_after_first_open, 1);
+        assert_eq!(backups_after_first_open, migrations::MIGRATIONS.len());
 
         // Second open: no pending migrations, so no *additional* backup.
         let _db = Database::open(&db_path).expect("reopen");

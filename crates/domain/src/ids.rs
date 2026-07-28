@@ -46,3 +46,4 @@ id_type!(BlockRuleId);
 id_type!(DownloadId);
 id_type!(SourceId);
 id_type!(ConnectorId);
+id_type!(LibraryRootId);

@@ -1,20 +1,23 @@
-//! Loopback-only local API skeleton, per `docs/19-local-api.md`.
+//! Loopback-only local API, per `docs/19-local-api.md`.
 //!
-//! Milestone A implements the "Health" endpoint subset only:
-//! `GET /health` (unauthenticated liveness) and
-//! `GET /diagnostics/summary` (bearer-token authenticated). Binding is
-//! always `127.0.0.1` — there is no configuration path to a non-loopback
-//! address in this milestone; remote access is explicitly a separate,
-//! later feature per the doc.
+//! Binding is always `127.0.0.1` — there is no configuration path to a
+//! non-loopback address; remote access is explicitly a separate, later
+//! feature per the doc. Every route is bearer-token authenticated except
+//! `GET /health`, enforced once via [`require_auth`] middleware rather
+//! than a per-handler check, now that Milestone B adds a dozen protected
+//! routes on top of Milestone A's single `/diagnostics/summary`.
+
+mod routes;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use application::{AppContext, DiagnosticsService};
-use axum::extract::State;
+use application::{AppContext, AppError, DiagnosticsService};
+use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::IntoResponse;
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use rand::Rng;
@@ -27,9 +30,17 @@ pub struct ApiState {
 }
 
 pub fn build_router(state: ApiState) -> Router {
+    let protected = Router::new()
+        .route("/api/v1/diagnostics/summary", get(diagnostics_summary))
+        .merge(routes::library::router())
+        .merge(routes::search::router())
+        .merge(routes::items::router())
+        .merge(routes::collections::router())
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
     Router::new()
         .route("/api/v1/health", get(health))
-        .route("/api/v1/diagnostics/summary", get(diagnostics_summary))
+        .merge(protected)
         .with_state(state)
 }
 
@@ -37,25 +48,27 @@ async fn health() -> impl IntoResponse {
     Json(json!({ "schema_version": 1, "status": "ok" }))
 }
 
-async fn diagnostics_summary(
+async fn diagnostics_summary(State(state): State<ApiState>) -> impl IntoResponse {
+    match DiagnosticsService::summary(&state.ctx) {
+        Ok(summary) => (StatusCode::OK, Json(summary)).into_response(),
+        Err(err) => error_response(&err),
+    }
+}
+
+async fn require_auth(
     State(state): State<ApiState>,
     headers: HeaderMap,
-) -> impl IntoResponse {
-    if !is_authorized(&headers, &state.token) {
-        return (
+    request: Request,
+    next: Next,
+) -> Response {
+    if is_authorized(&headers, &state.token) {
+        next.run(request).await
+    } else {
+        (
             StatusCode::UNAUTHORIZED,
             Json(json!({ "schema_version": 1, "error": "authentication required" })),
         )
-            .into_response();
-    }
-
-    match DiagnosticsService::summary(&state.ctx) {
-        Ok(summary) => (StatusCode::OK, Json(summary)).into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "schema_version": 1, "error": err.to_string() })),
-        )
-            .into_response(),
+            .into_response()
     }
 }
 
@@ -65,6 +78,31 @@ fn is_authorized(headers: &HeaderMap, expected_token: &str) -> bool {
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .is_some_and(|presented| presented == expected_token)
+}
+
+/// Maps an `AppError` to a status code and a `{schema_version, error}`
+/// body, used by every route handler under `routes/`.
+pub(crate) fn error_response(err: &AppError) -> Response {
+    let status = match err {
+        AppError::NotFound(_) => StatusCode::NOT_FOUND,
+        AppError::InvalidQuery(_) | AppError::InvalidPath(_) => StatusCode::BAD_REQUEST,
+        AppError::Database(_) | AppError::Io(_) | AppError::NoDataDirectory => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    };
+    (
+        status,
+        Json(json!({ "schema_version": 1, "error": err.to_string() })),
+    )
+        .into_response()
+}
+
+pub(crate) fn bad_id_response() -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "schema_version": 1, "error": "invalid id" })),
+    )
+        .into_response()
 }
 
 /// A random 256-bit bearer token, hex-encoded.
