@@ -4,7 +4,8 @@ mod exit_code;
 
 use clap::Parser;
 use cli_args::{
-    Cli, CollectionAction, Command, DbAction, FavoriteAction, ItemAction, LibraryAction,
+    Cli, CollectionAction, Command, DbAction, DiagnosticsAction, FavoriteAction, ItemAction,
+    LibraryAction,
 };
 
 fn main() {
@@ -14,9 +15,16 @@ fn main() {
 
     let code = match cli.command {
         Command::Doctor => commands::doctor(format, quiet),
-        Command::Db {
-            action: DbAction::Check,
-        } => commands::db_check(format, quiet),
+        Command::Db { action } => match action {
+            DbAction::Check => commands::db_check(format, quiet),
+            DbAction::Backup { path } => commands::db_backup(format, quiet, path),
+            DbAction::Restore { path } => commands::db_restore(format, quiet, path),
+        },
+        Command::Diagnostics { action } => match action {
+            DiagnosticsAction::Bundle { file } => {
+                commands::diagnostics::bundle(format, quiet, file)
+            }
+        },
         Command::Library { action } => match action {
             LibraryAction::Add { path, display_name } => {
                 commands::library::add(format, quiet, path, display_name)

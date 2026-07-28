@@ -24,7 +24,11 @@ pub enum Message {
 }
 
 pub enum Effect {
-    Unlocked,
+    /// Carries the session encryption key, derived here (not by the
+    /// caller) so the plaintext password never needs to leave this
+    /// module — `None` when metadata encryption isn't enabled, since
+    /// there'd be nothing to derive a key for.
+    Unlocked(Option<[u8; 32]>),
 }
 
 pub fn update(
@@ -37,21 +41,29 @@ pub fn update(
             state.password_input = value;
             (Task::none(), None)
         }
-        Message::Submit => match PrivacyService::verify_password(ctx, &state.password_input) {
-            Ok(true) => {
-                state.password_input.clear();
-                state.error = None;
-                (Task::none(), Some(Effect::Unlocked))
+        Message::Submit => {
+            let password = state.password_input.clone();
+            match PrivacyService::verify_password(ctx, &password) {
+                Ok(true) => {
+                    state.password_input.clear();
+                    state.error = None;
+                    let key = if PrivacyService::metadata_encryption_enabled(ctx).unwrap_or(false) {
+                        PrivacyService::derive_key(ctx, &password).ok()
+                    } else {
+                        None
+                    };
+                    (Task::none(), Some(Effect::Unlocked(key)))
+                }
+                Ok(false) => {
+                    state.error = Some("Incorrect password.".to_string());
+                    (Task::none(), None)
+                }
+                Err(e) => {
+                    state.error = Some(e.to_string());
+                    (Task::none(), None)
+                }
             }
-            Ok(false) => {
-                state.error = Some("Incorrect password.".to_string());
-                (Task::none(), None)
-            }
-            Err(e) => {
-                state.error = Some(e.to_string());
-                (Task::none(), None)
-            }
-        },
+        }
     }
 }
 
@@ -112,9 +124,26 @@ mod tests {
         };
 
         let (_, effect) = update(&mut state, &ctx, Message::Submit);
-        assert!(matches!(effect, Some(Effect::Unlocked)));
+        assert!(matches!(effect, Some(Effect::Unlocked(None))));
         assert!(state.password_input.is_empty());
         assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn correct_password_derives_a_key_when_metadata_encryption_is_enabled() {
+        let (ctx, _dir) = test_ctx();
+        PrivacyService::set_password(&ctx, "correct").unwrap();
+        PrivacyService::enable_metadata_encryption(&ctx, "correct").unwrap();
+        let mut state = State {
+            password_input: "correct".to_string(),
+            error: None,
+        };
+
+        let (_, effect) = update(&mut state, &ctx, Message::Submit);
+        assert!(
+            matches!(effect, Some(Effect::Unlocked(Some(_)))),
+            "expected Unlocked(Some(key))"
+        );
     }
 
     #[test]

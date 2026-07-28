@@ -27,6 +27,11 @@ pub struct App {
     screen: Screen,
     locked: bool,
     theme: application::Theme,
+    /// Session-only AES-256 key for encrypted metadata (never
+    /// persisted) — `None` until the user unlocks with the profile
+    /// password (or enables encryption in Settings), and always `None`
+    /// if metadata encryption isn't enabled at all.
+    encryption_key: Option<[u8; 32]>,
 
     onboarding: screens::onboarding::State,
     home: screens::home::State,
@@ -54,8 +59,16 @@ impl App {
     pub fn new(ctx: Arc<AppContext>) -> (Self, Task<Message>) {
         let onboarding_done =
             application::SettingsService::onboarding_complete(&ctx).unwrap_or(false);
-        let start_locked = application::SettingsService::start_locked(&ctx).unwrap_or(false)
-            && application::PrivacyService::has_password(&ctx).unwrap_or(false);
+        let has_password = application::PrivacyService::has_password(&ctx).unwrap_or(false);
+        let metadata_encryption_enabled =
+            application::PrivacyService::metadata_encryption_enabled(&ctx).unwrap_or(false);
+        // Metadata encryption always forces a start-locked boot,
+        // regardless of the separate `start_locked` preference — there's
+        // no session key without the password, so notes/private_tags
+        // couldn't be decrypted otherwise.
+        let start_locked = has_password
+            && (metadata_encryption_enabled
+                || application::SettingsService::start_locked(&ctx).unwrap_or(false));
         let theme = application::SettingsService::theme(&ctx).unwrap_or(application::Theme::Dark);
 
         let mut app = App {
@@ -67,6 +80,7 @@ impl App {
             },
             locked: start_locked,
             theme,
+            encryption_key: None,
             onboarding: screens::onboarding::State::default(),
             home: screens::home::State::default(),
             library: screens::library::State::default(),
@@ -97,7 +111,12 @@ impl App {
     }
 
     fn open_item(&mut self, item_id: ItemId) {
-        screens::viewer::load(&mut self.viewer, &self.ctx, item_id);
+        screens::viewer::load(
+            &mut self.viewer,
+            &self.ctx,
+            item_id,
+            self.encryption_key.as_ref(),
+        );
         self.screen = Screen::Viewer;
     }
 
@@ -127,8 +146,9 @@ impl App {
             }
             Message::Lock(msg) => {
                 let (task, effect) = screens::lock::update(&mut self.lock, &self.ctx, msg);
-                if let Some(screens::lock::Effect::Unlocked) = effect {
+                if let Some(screens::lock::Effect::Unlocked(key)) = effect {
                     self.locked = false;
+                    self.encryption_key = key;
                     self.navigate(self.screen);
                 }
                 task.map(Message::Lock)
@@ -161,7 +181,16 @@ impl App {
                 task.map(Message::Library)
             }
             Message::Viewer(msg) => {
-                screens::viewer::update(&mut self.viewer, &self.ctx, msg).map(Message::Viewer)
+                let (task, effect) = screens::viewer::update(
+                    &mut self.viewer,
+                    &self.ctx,
+                    self.encryption_key.as_ref(),
+                    msg,
+                );
+                if let Some(screens::viewer::Effect::Deleted) = effect {
+                    self.navigate(Screen::Library);
+                }
+                task.map(Message::Viewer)
             }
             Message::PrivacyCenter(msg) => {
                 screens::privacy_center::update(&mut self.privacy_center, &self.ctx, msg)
@@ -169,8 +198,15 @@ impl App {
             }
             Message::Settings(msg) => {
                 let (task, effect) = screens::settings::update(&mut self.settings, &self.ctx, msg);
-                if let Some(screens::settings::Effect::ThemeChanged(theme)) = effect {
-                    self.theme = theme;
+                match effect {
+                    Some(screens::settings::Effect::ThemeChanged(theme)) => self.theme = theme,
+                    Some(screens::settings::Effect::EncryptionKeyEstablished(key)) => {
+                        self.encryption_key = Some(key);
+                    }
+                    Some(screens::settings::Effect::EncryptionKeyCleared) => {
+                        self.encryption_key = None;
+                    }
+                    None => {}
                 }
                 task.map(Message::Settings)
             }
@@ -295,6 +331,22 @@ mod tests {
 
         let (app, _task) = App::new(ctx);
         assert!(app.locked);
+    }
+
+    #[test]
+    fn metadata_encryption_forces_a_locked_boot_even_without_the_start_locked_preference() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Arc::new(AppContext::open_at(dir.path()).unwrap());
+        application::PrivacyService::set_password(&ctx, "hunter2").unwrap();
+        application::PrivacyService::enable_metadata_encryption(&ctx, "hunter2").unwrap();
+        // start_locked is deliberately left at its default (false).
+        assert!(!application::SettingsService::start_locked(&ctx).unwrap());
+
+        let (app, _task) = App::new(ctx);
+        assert!(
+            app.locked,
+            "encryption needs the password every session to derive the key, regardless of start_locked"
+        );
     }
 
     #[test]

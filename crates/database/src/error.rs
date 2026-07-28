@@ -8,6 +8,8 @@ pub enum DatabaseError {
     Io(#[from] std::io::Error),
     #[error("migration {version} failed: {message}")]
     Migration { version: i64, message: String },
+    #[error("backup error: {0}")]
+    Backup(String),
 }
 
 pub type Result<T> = std::result::Result<T, DatabaseError>;
