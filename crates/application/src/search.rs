@@ -12,7 +12,7 @@
 //! doc comment for what's excluded and why.
 
 use domain::{Clause, FieldFilter, FilterValue, MediaType, Predicate, SearchField, SearchQuery};
-use rusqlite::ToSql;
+use rusqlite::{params, ToSql};
 use serde::{Deserialize, Serialize};
 
 use crate::context::AppContext;
@@ -108,6 +108,45 @@ impl SearchService {
             total,
             items,
         })
+    }
+
+    /// Items with recent playback/reading activity that isn't yet
+    /// complete, most-recently-opened first — powers the Home screen's
+    /// "Continue" section. Not expressible through the search DSL
+    /// (ordering by `last_opened_at` and a "has a value" filter on it
+    /// aren't fields the query language exposes), so this is a
+    /// dedicated query rather than a `SearchService::search` call.
+    pub fn continue_items(ctx: &AppContext, limit: u32) -> Result<Vec<SearchHit>> {
+        let conn = ctx.db.connection();
+        let mut stmt = conn
+            .prepare(
+                "SELECT media_items.id, media_items.title, media_items.media_type, user_state.favorite
+                 FROM media_items
+                 JOIN user_state ON user_state.item_id = media_items.id
+                 WHERE user_state.last_opened_at IS NOT NULL AND user_state.completed = 0
+                 ORDER BY user_state.last_opened_at DESC
+                 LIMIT ?1",
+            )
+            .map_err(database::DatabaseError::from)?;
+        let rows = stmt
+            .query_map(params![limit], |row| {
+                let id: String = row.get(0)?;
+                let title: String = row.get(1)?;
+                let media_type_str: String = row.get(2)?;
+                let favorite: bool = row.get(3)?;
+                Ok(SearchHit {
+                    item_id: id,
+                    title,
+                    media_type: media_type_from_str(&media_type_str).unwrap_or(MediaType::Other),
+                    favorite,
+                })
+            })
+            .map_err(database::DatabaseError::from)?;
+        let mut items = Vec::new();
+        for row in rows {
+            items.push(row.map_err(database::DatabaseError::from)?);
+        }
+        Ok(items)
     }
 }
 
@@ -451,6 +490,60 @@ mod tests {
         let page = SearchService::search(&ctx, "type:video", 2, 2).unwrap();
         assert_eq!(page.total, 5);
         assert_eq!(page.items.len(), 2);
+    }
+
+    #[test]
+    fn continue_items_excludes_unopened_and_completed_items() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        let never_opened = insert_item(&ctx, "Never Opened", "video");
+        let in_progress = insert_item(&ctx, "In Progress", "video");
+        let completed = insert_item(&ctx, "Completed", "video");
+        for (id, completed_flag) in [
+            (never_opened.clone(), false),
+            (in_progress.clone(), false),
+            (completed.clone(), true),
+        ] {
+            if id == never_opened {
+                continue;
+            }
+            ctx.db
+                .connection()
+                .execute(
+                    "INSERT INTO user_state (item_id, last_opened_at, completed) VALUES (?1, datetime('now'), ?2)",
+                    params![id, completed_flag as i64],
+                )
+                .unwrap();
+        }
+
+        let results = SearchService::continue_items(&ctx, 50).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "In Progress");
+    }
+
+    #[test]
+    fn continue_items_orders_most_recently_opened_first() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        let older = insert_item(&ctx, "Older", "video");
+        let newer = insert_item(&ctx, "Newer", "video");
+        ctx.db
+            .connection()
+            .execute(
+                "INSERT INTO user_state (item_id, last_opened_at, completed) VALUES (?1, '2020-01-01T00:00:00Z', 0)",
+                params![older],
+            )
+            .unwrap();
+        ctx.db
+            .connection()
+            .execute(
+                "INSERT INTO user_state (item_id, last_opened_at, completed) VALUES (?1, '2024-01-01T00:00:00Z', 0)",
+                params![newer],
+            )
+            .unwrap();
+
+        let results = SearchService::continue_items(&ctx, 50).unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "Newer");
+        assert_eq!(results[1].title, "Older");
     }
 
     #[test]

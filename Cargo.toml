@@ -7,6 +7,7 @@ members = [
     "crates/application",
     "crates/local-api",
     "crates/cli",
+    "crates/gui",
 ]
 
 [workspace.package]
@@ -37,6 +38,10 @@ blake3 = "1"
 mime_guess = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 zip = "2"
+argon2 = { version = "0.5", features = ["password-hash"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+iced = { version = "0.13", features = ["image", "tokio"] }
+rfd = "0.15"
 
 [profile.release]
 opt-level = 3

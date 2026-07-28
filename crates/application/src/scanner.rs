@@ -27,7 +27,7 @@ use crate::time_format::to_rfc3339;
 
 const MAX_SKIPPED_LISTED: usize = 200;
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScanReport {
     pub schema_version: u32,
     pub roots: Vec<RootScanResult>,
@@ -35,7 +35,7 @@ pub struct ScanReport {
     pub skipped_total: u32,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RootScanResult {
     pub root_id: String,
     pub path: String,
@@ -50,7 +50,7 @@ pub struct RootScanResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkippedFile {
     pub path: String,
     pub reason: String,

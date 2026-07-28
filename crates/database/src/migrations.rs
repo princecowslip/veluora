@@ -35,6 +35,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "media_documents",
         sql: include_str!("../../../migrations/0003_media_documents.sql"),
     },
+    Migration {
+        version: 4,
+        name: "app_settings",
+        sql: include_str!("../../../migrations/0004_app_settings.sql"),
+    },
 ];
 
 pub fn run_migrations(conn: &mut Connection, db_path: &Path) -> Result<()> {
