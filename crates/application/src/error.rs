@@ -8,6 +8,12 @@ pub enum AppError {
     NoDataDirectory,
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("not found: {0}")]
+    NotFound(String),
+    #[error("invalid path: {0}")]
+    InvalidPath(String),
+    #[error("invalid query: {0}")]
+    InvalidQuery(String),
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;

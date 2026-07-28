@@ -9,7 +9,9 @@ pub mod block_rule;
 pub mod collection;
 pub mod download;
 pub mod ids;
+pub mod library_root;
 pub mod media_item;
+pub mod search_query;
 pub mod source;
 pub mod submodels;
 pub mod tag;
@@ -20,7 +22,12 @@ pub use block_rule::{BlockCandidate, BlockRule, RuleType, Scope};
 pub use collection::{Collection, CollectionType};
 pub use download::{ChecksumState, Download, DownloadState};
 pub use ids::*;
+pub use library_root::LibraryRoot;
 pub use media_item::{MediaItem, MediaType, RatingClassification, SafetyStatus, VisibilityState};
+pub use search_query::{
+    parse as parse_search_query, Clause, FieldFilter, FilterValue, Predicate, QueryParseError,
+    SearchField, SearchQuery,
+};
 pub use source::{AccessState, HealthState, Source, SourceReference};
 pub use submodels::{Chapter, Gallery, Series, StoryDocument, StoryFormat};
 pub use tag::{Tag, TagNamespace};

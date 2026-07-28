@@ -19,11 +19,18 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../../../migrations/0001_init.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../../../migrations/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "library_and_search",
+        sql: include_str!("../../../migrations/0002_library_and_search.sql"),
+    },
+];
 
 pub fn run_migrations(conn: &mut Connection, db_path: &Path) -> Result<()> {
     conn.execute_batch(

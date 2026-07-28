@@ -12,6 +12,15 @@ fn isolated_cmd() -> (Command, tempfile::TempDir) {
     (cmd, dir)
 }
 
+/// Same as `isolated_cmd`, but also returns a temp directory the test can
+/// write real media files into and register as a library root — separate
+/// from the CLI's own data dir.
+fn isolated_cmd_with_media_dir() -> (Command, tempfile::TempDir, tempfile::TempDir) {
+    let (cmd, home_dir) = isolated_cmd();
+    let media_dir = tempfile::tempdir().unwrap();
+    (cmd, home_dir, media_dir)
+}
+
 #[test]
 fn doctor_reports_ok_in_text_mode() {
     let (mut cmd, _dir) = isolated_cmd();
@@ -29,7 +38,10 @@ fn doctor_json_output_includes_schema_version() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"schema_version\":1"))
-        .stdout(predicate::str::contains("\"applied_migrations\":1"));
+        .stdout(predicate::str::contains(format!(
+            "\"applied_migrations\":{}",
+            database::migrations::MIGRATIONS.len()
+        )));
 }
 
 #[test]
@@ -48,7 +60,10 @@ fn db_check_json_output_is_well_formed() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ok\":true"))
-        .stdout(predicate::str::contains("\"applied_migrations\":1"));
+        .stdout(predicate::str::contains(format!(
+            "\"applied_migrations\":{}",
+            database::migrations::MIGRATIONS.len()
+        )));
 }
 
 #[test]
@@ -64,4 +79,167 @@ fn quiet_suppresses_text_output_but_still_succeeds() {
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn library_add_list_and_status() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("added library root"));
+
+    let (mut cmd, _home2) = isolated_cmd();
+    cmd.env("HOME", home.path());
+    cmd.env("XDG_DATA_HOME", home.path().join("data"));
+    cmd.arg("library")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(media.path().to_str().unwrap()));
+}
+
+#[test]
+fn library_scan_requires_a_registered_root() {
+    let (mut cmd, _home, media) = isolated_cmd_with_media_dir();
+    cmd.arg("library")
+        .arg("scan")
+        .arg("--path")
+        .arg(media.path())
+        .assert()
+        .failure()
+        .code(3)
+        .stderr(predicate::str::contains("library add"));
+}
+
+#[test]
+fn library_remove_refuses_without_yes() {
+    let (mut cmd, _dir) = isolated_cmd();
+    cmd.arg("library")
+        .arg("remove")
+        .arg("00000000-0000-0000-0000-000000000000")
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn scan_search_favorite_and_item_show_end_to_end() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    std::fs::write(media.path().join("clip.mp4"), b"fake video bytes").unwrap();
+
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd
+        .arg("library")
+        .arg("scan")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1 added"));
+
+    let mut search_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut search_cmd);
+    let output = search_cmd
+        .args(["--output", "json", "search", "type:video"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(json["total"], 1);
+    let item_id = json["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let mut fav_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut fav_cmd);
+    fav_cmd
+        .arg("favorite")
+        .arg("add")
+        .arg(&item_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("favorited"));
+
+    let mut show_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut show_cmd);
+    show_cmd
+        .arg("item")
+        .arg("show")
+        .arg(&item_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("favorite: true"));
+}
+
+#[test]
+fn collection_create_list_and_item_membership() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    std::fs::write(media.path().join("pic.png"), b"fake png bytes").unwrap();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd.arg("library").arg("scan").assert().success();
+
+    let mut search_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut search_cmd);
+    let output = search_cmd
+        .args(["--output", "json", "search", "type:image"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let item_id = json["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let mut create_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut create_cmd);
+    let output = create_cmd
+        .args(["--output", "json", "collection", "create", "Later"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let collection_id = json["id"].as_str().unwrap().to_string();
+
+    let mut add_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut add_cmd);
+    add_cmd
+        .arg("collection")
+        .arg("add")
+        .arg(&item_id)
+        .arg("--to")
+        .arg(&collection_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("added to"));
+
+    let mut list_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut list_cmd);
+    list_cmd
+        .arg("collection")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Later"));
 }

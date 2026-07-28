@@ -3,16 +3,59 @@ mod commands;
 mod exit_code;
 
 use clap::Parser;
-use cli_args::{Cli, Command, DbAction};
+use cli_args::{
+    Cli, CollectionAction, Command, DbAction, FavoriteAction, ItemAction, LibraryAction,
+};
 
 fn main() {
     let cli = Cli::parse();
+    let format = cli.output;
+    let quiet = cli.quiet;
 
     let code = match cli.command {
-        Command::Doctor => commands::doctor(cli.output, cli.quiet),
+        Command::Doctor => commands::doctor(format, quiet),
         Command::Db {
             action: DbAction::Check,
-        } => commands::db_check(cli.output, cli.quiet),
+        } => commands::db_check(format, quiet),
+        Command::Library { action } => match action {
+            LibraryAction::Add { path, display_name } => {
+                commands::library::add(format, quiet, path, display_name)
+            }
+            LibraryAction::List => commands::library::list(format, quiet),
+            LibraryAction::Remove { root_id, yes } => {
+                commands::library::remove(format, quiet, root_id, yes)
+            }
+            LibraryAction::Scan { path } => commands::library::scan(format, quiet, path),
+            LibraryAction::Status => commands::library::status(format, quiet),
+        },
+        Command::Search {
+            query,
+            limit,
+            offset,
+        } => commands::search::run(format, quiet, query, limit, offset),
+        Command::Favorite { action } => match action {
+            FavoriteAction::Add { item_id } => commands::favorite::add(format, quiet, item_id),
+            FavoriteAction::Remove { item_id } => {
+                commands::favorite::remove(format, quiet, item_id)
+            }
+        },
+        Command::Collection { action } => match action {
+            CollectionAction::Create { name, description } => {
+                commands::collection::create(format, quiet, name, description)
+            }
+            CollectionAction::List => commands::collection::list(format, quiet),
+            CollectionAction::Add {
+                item_id,
+                collection_id,
+            } => commands::collection::add_item(format, quiet, item_id, collection_id),
+            CollectionAction::Remove {
+                item_id,
+                collection_id,
+            } => commands::collection::remove_item(format, quiet, item_id, collection_id),
+        },
+        Command::Item { action } => match action {
+            ItemAction::Show { item_id } => commands::item::show(format, quiet, item_id),
+        },
     };
 
     std::process::exit(code.as_i32());

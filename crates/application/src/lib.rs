@@ -2,25 +2,42 @@
 //! `cli` (and, later, `gui`/`tui`) and the `domain`/`database` crates.
 //! Presentation layers call through here — never around it.
 
+pub mod collections;
 pub mod context;
 pub mod diagnostics;
 pub mod error;
+pub mod items;
 pub mod library;
+pub mod media_classification;
+pub mod scanner;
+pub mod search;
+pub mod thumbnails;
+pub mod time_format;
+pub mod user_state;
 
+pub use collections::CollectionService;
 pub use context::AppContext;
 pub use diagnostics::{DiagnosticsService, DiagnosticsSummary};
 pub use error::{AppError, Result};
-pub use library::{LibraryService, LibraryStatus};
+pub use items::{ItemDetail, ItemService, VariantSummary};
+pub use library::{LibraryRootService, LibraryRootSummary, LibraryService, LibraryStatus};
+pub use scanner::{RootScanResult, ScanReport, ScanService, SkippedFile};
+pub use search::{SearchHit, SearchResults, SearchService};
+pub use thumbnails::ThumbnailService;
+pub use user_state::UserStateService;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn diagnostics_summary_reports_one_applied_migration() {
+    fn diagnostics_summary_reports_all_applied_migrations() {
         let ctx = AppContext::open_in_memory().expect("context");
         let summary = DiagnosticsService::summary(&ctx).expect("summary");
-        assert_eq!(summary.applied_migrations, 1);
+        assert_eq!(
+            summary.applied_migrations,
+            database::migrations::MIGRATIONS.len() as i64
+        );
         assert_eq!(summary.schema_version, 1);
     }
 

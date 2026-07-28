@@ -3,14 +3,14 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 
 /// The `veloura` command-line interface. See `docs/10-cli.md` for the
-/// full, eventual command tree — this milestone implements the
-/// foundational subset (`doctor`, `db check`) plus the global options
-/// every future command will share.
+/// full, eventual command tree — this covers the Milestone A/B subset
+/// (`doctor`, `db check`, `library`, `search`, `favorite`, `collection`,
+/// `item`) plus the global options every future command will share.
 #[derive(Parser)]
 #[command(name = "veloura", version, about = "Veloura command-line interface")]
 pub struct Cli {
-    /// Path to a config file. Reserved: Milestone A does not yet parse a
-    /// config file, so this is accepted but currently unused.
+    /// Path to a config file. Reserved: no config-file parsing exists
+    /// yet, so this is accepted but currently unused.
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
 
@@ -47,10 +47,99 @@ pub enum Command {
         #[command(subcommand)]
         action: DbAction,
     },
+    /// Local library folder management and scanning.
+    Library {
+        #[command(subcommand)]
+        action: LibraryAction,
+    },
+    /// Search the local library.
+    Search {
+        query: String,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+        #[arg(long, default_value_t = 0)]
+        offset: u32,
+    },
+    /// Favorite/unfavorite an item.
+    Favorite {
+        #[command(subcommand)]
+        action: FavoriteAction,
+    },
+    /// Manual collections.
+    Collection {
+        #[command(subcommand)]
+        action: CollectionAction,
+    },
+    /// Item details.
+    Item {
+        #[command(subcommand)]
+        action: ItemAction,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum DbAction {
     /// Verify the database is reachable and migrations are applied.
     Check,
+}
+
+#[derive(Subcommand)]
+pub enum LibraryAction {
+    /// Register a folder to scan.
+    Add {
+        path: PathBuf,
+        #[arg(long = "name")]
+        display_name: Option<String>,
+    },
+    /// List registered folder roots.
+    List,
+    /// Unregister a folder root. Detaches its files (clears their local
+    /// path) without deleting the items, favorites, ratings, or
+    /// collection membership built on top of them.
+    Remove {
+        root_id: String,
+        /// Required — this is a destructive-to-confirm operation with no
+        /// interactive prompt yet.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Scan every enabled root, or one specific root/path.
+    Scan {
+        /// Must already be a registered root (see `library add`).
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Summary of registered roots and indexed item count.
+    Status,
+}
+
+#[derive(Subcommand)]
+pub enum FavoriteAction {
+    Add { item_id: String },
+    Remove { item_id: String },
+}
+
+#[derive(Subcommand)]
+pub enum CollectionAction {
+    Create {
+        name: String,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    List,
+    Add {
+        item_id: String,
+        #[arg(long = "to")]
+        collection_id: String,
+    },
+    Remove {
+        item_id: String,
+        #[arg(long = "from")]
+        collection_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ItemAction {
+    Show { item_id: String },
 }
