@@ -451,6 +451,190 @@ async fn unauthenticated_requests_to_the_new_routes_are_rejected() {
 }
 
 #[tokio::test]
+async fn pin_toggle_round_trips_via_http() {
+    let (state, token, media_dir) = test_state().await;
+    std::fs::write(media_dir.path().join("pic.png"), b"png bytes").unwrap();
+    call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/library/roots",
+        Some(json!({ "path": media_dir.path().to_string_lossy() })),
+    )
+    .await;
+    call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/library/scan",
+        Some(json!({})),
+    )
+    .await;
+    let (_, results) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/search",
+        Some(json!({ "query": "type:image" })),
+    )
+    .await;
+    let item_id = results["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let (status, updated) = call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/items/{item_id}/pin"),
+        Some(json!({ "pinned": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["pinned"], true);
+
+    let (status, updated) = call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/items/{item_id}/pin"),
+        Some(json!({ "pinned": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["pinned"], false);
+}
+
+#[tokio::test]
+async fn cache_status_quota_and_enforce_round_trip_via_http() {
+    let (state, token, _media_dir) = test_state().await;
+
+    let (status, status_body) = call(&state, &token, "GET", "/api/v1/cache/status", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status_body["breakdown"]["total_bytes"], 0);
+    assert!(status_body["quota_bytes"].is_null());
+
+    let (status, _) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/cache/quota",
+        Some(json!({ "bytes": 1024 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, status_body) = call(&state, &token, "GET", "/api/v1/cache/status", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status_body["quota_bytes"], 1024);
+
+    let (status, report) = call(&state, &token, "POST", "/api/v1/cache/enforce-quota", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(report["evicted_files"], 0);
+}
+
+#[tokio::test]
+async fn home_continue_lists_recently_opened_items_via_http() {
+    let (state, token, media_dir) = test_state().await;
+    std::fs::write(media_dir.path().join("clip.mp4"), b"video bytes").unwrap();
+    call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/library/roots",
+        Some(json!({ "path": media_dir.path().to_string_lossy() })),
+    )
+    .await;
+    call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/library/scan",
+        Some(json!({})),
+    )
+    .await;
+    let (_, results) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/search",
+        Some(json!({ "query": "type:video" })),
+    )
+    .await;
+    let item_id = results["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let (status, continue_before) =
+        call(&state, &token, "GET", "/api/v1/home/continue", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(continue_before.as_array().unwrap().is_empty());
+
+    call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/items/{item_id}/open"),
+        None,
+    )
+    .await;
+
+    let (status, continue_after) = call(&state, &token, "GET", "/api/v1/home/continue", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(continue_after.as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn privacy_status_and_verify_round_trip_via_http() {
+    let (state, token, _media_dir) = test_state().await;
+
+    let (status, status_body) = call(&state, &token, "GET", "/api/v1/privacy/status", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status_body["has_password"], false);
+    assert_eq!(status_body["metadata_encryption_enabled"], false);
+
+    let (status, verify_body) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/privacy/verify",
+        Some(json!({ "password": "anything" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        verify_body["ok"], false,
+        "verification fails closed when no password is set"
+    );
+
+    // Set a password directly through the application layer (there's no
+    // HTTP route to set one — the TUI only ever verifies).
+    application::PrivacyService::set_password(&state.ctx, "hunter2").unwrap();
+
+    let (status, status_body) = call(&state, &token, "GET", "/api/v1/privacy/status", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status_body["has_password"], true);
+
+    let (status, verify_body) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/privacy/verify",
+        Some(json!({ "password": "wrong" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(verify_body["ok"], false);
+
+    let (status, verify_body) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/privacy/verify",
+        Some(json!({ "password": "hunter2" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(verify_body["ok"], true);
+}
+
+#[tokio::test]
 async fn malformed_search_query_is_a_bad_request() {
     let (state, token, _media_dir) = test_state().await;
     let (status, body) = call(

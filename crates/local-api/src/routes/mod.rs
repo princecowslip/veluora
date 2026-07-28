@@ -1,4 +1,7 @@
+pub mod cache;
 pub mod collections;
+pub mod home;
 pub mod items;
 pub mod library;
+pub mod privacy;
 pub mod search;

@@ -14,6 +14,7 @@ pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/api/v1/items/:id", get(get_item))
         .route("/api/v1/items/:id/favorite", post(set_favorite))
+        .route("/api/v1/items/:id/pin", post(set_pinned))
         .route("/api/v1/items/:id/open", post(open_item))
         .route("/api/v1/items/:id/progress", post(set_progress))
         .route("/api/v1/items/:id/story", get(get_story))
@@ -45,6 +46,25 @@ async fn set_favorite(
         return bad_id_response();
     };
     match UserStateService::set_favorite(&state.ctx, item_id, body.favorite) {
+        Ok(user_state) => (StatusCode::OK, Json(user_state)).into_response(),
+        Err(e) => error_response(&e),
+    }
+}
+
+#[derive(Deserialize)]
+struct PinRequest {
+    pinned: bool,
+}
+
+async fn set_pinned(
+    State(state): State<ApiState>,
+    AxumPath(id): AxumPath<String>,
+    Json(body): Json<PinRequest>,
+) -> Response {
+    let Some(item_id) = parse_item_id(&id) else {
+        return bad_id_response();
+    };
+    match UserStateService::set_pinned(&state.ctx, item_id, body.pinned) {
         Ok(user_state) => (StatusCode::OK, Json(user_state)).into_response(),
         Err(e) => error_response(&e),
     }

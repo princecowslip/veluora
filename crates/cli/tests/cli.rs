@@ -534,6 +534,120 @@ fn db_backup_and_restore_round_trip() {
 }
 
 #[test]
+fn item_pin_toggle_round_trips() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    std::fs::write(media.path().join("pic.png"), b"fake png bytes").unwrap();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd.arg("library").arg("scan").assert().success();
+
+    let mut search_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut search_cmd);
+    let output = search_cmd
+        .args(["--output", "json", "search", "type:image"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let item_id = json["items"][0]["item_id"].as_str().unwrap().to_string();
+
+    let mut pin_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut pin_cmd);
+    pin_cmd
+        .arg("item")
+        .arg("pin")
+        .arg(&item_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pinned"));
+
+    let mut show_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut show_cmd);
+    show_cmd
+        .args(["--output", "json", "item", "show", &item_id])
+        .assert()
+        .success();
+
+    let mut unpin_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut unpin_cmd);
+    unpin_cmd
+        .arg("item")
+        .arg("pin")
+        .arg(&item_id)
+        .arg("--unpin")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("unpinned"));
+}
+
+#[test]
+fn db_cache_status_quota_and_enforce_quota_round_trip() {
+    let (mut cmd, _dir) = isolated_cmd();
+    cmd.args(["--output", "json", "db", "cache-status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"total_bytes\":0"))
+        .stdout(predicate::str::contains("\"quota_bytes\":null"));
+
+    let (mut cmd2, _dir2) = isolated_cmd();
+    cmd2.env("HOME", _dir.path());
+    cmd2.env("XDG_DATA_HOME", _dir.path().join("data"));
+    cmd2.args(["db", "cache-quota", "1024"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cache quota set to 1024 bytes"));
+
+    let mut status_cmd = Command::cargo_bin("veloura").unwrap();
+    status_cmd.env("HOME", _dir.path());
+    status_cmd.env("XDG_DATA_HOME", _dir.path().join("data"));
+    status_cmd
+        .args(["--output", "json", "db", "cache-status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"quota_bytes\":1024"));
+
+    let mut enforce_cmd = Command::cargo_bin("veloura").unwrap();
+    enforce_cmd.env("HOME", _dir.path());
+    enforce_cmd.env("XDG_DATA_HOME", _dir.path().join("data"));
+    enforce_cmd
+        .arg("db")
+        .arg("cache-enforce-quota")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("evicted 0 file(s)"));
+
+    let mut clear_cmd = Command::cargo_bin("veloura").unwrap();
+    clear_cmd.env("HOME", _dir.path());
+    clear_cmd.env("XDG_DATA_HOME", _dir.path().join("data"));
+    clear_cmd
+        .args(["db", "cache-quota", "--clear"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cache quota cleared"));
+}
+
+#[test]
+fn db_cache_quota_requires_either_a_value_or_clear() {
+    let (mut cmd, _dir) = isolated_cmd();
+    cmd.args(["db", "cache-quota"])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("pass a byte value"));
+}
+
+#[test]
 fn db_restore_rejects_an_invalid_backup_file() {
     let (mut cmd, _dir) = isolated_cmd();
     let bogus_path = _dir.path().join("bogus.db");

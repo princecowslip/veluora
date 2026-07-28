@@ -40,6 +40,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "app_settings",
         sql: include_str!("../../../migrations/0004_app_settings.sql"),
     },
+    Migration {
+        version: 5,
+        name: "pinned",
+        sql: include_str!("../../../migrations/0005_pinned.sql"),
+    },
 ];
 
 pub fn run_migrations(conn: &mut Connection, db_path: &Path) -> Result<()> {

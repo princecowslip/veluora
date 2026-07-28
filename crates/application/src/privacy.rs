@@ -6,7 +6,9 @@
 //! `docs/20-privacy-and-security.md`'s "do not invent custom
 //! cryptography for password storage" rule.
 
+use std::collections::HashSet;
 use std::fs;
+use std::path::PathBuf;
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng as AesOsRng};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -15,6 +17,7 @@ use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, Salt
 use argon2::Argon2;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
+use serde::{Deserialize, Serialize};
 
 use crate::context::AppContext;
 use crate::error::{AppError, Result};
@@ -28,6 +31,24 @@ const METADATA_ENCRYPTION_ENABLED_KEY: &str = "metadata_encryption_enabled";
 /// ciphertext) rather than plaintext, so `decrypt_text` can pass
 /// unmarked plaintext through unchanged.
 const ENCRYPTED_PREFIX: &str = "enc:v1:";
+
+/// Per-subdirectory byte totals under `<data_dir>/cache`, for the Privacy
+/// Center's cache display.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CacheBreakdown {
+    pub thumbnails_bytes: u64,
+    pub stories_bytes: u64,
+    pub other_bytes: u64,
+    pub total_bytes: u64,
+}
+
+/// What [`PrivacyService::enforce_cache_quota`] did.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheEvictionReport {
+    pub evicted_files: u64,
+    pub evicted_bytes: u64,
+    pub remaining_bytes: u64,
+}
 
 pub struct PrivacyService;
 
@@ -93,6 +114,127 @@ impl PrivacyService {
         }
         fs::create_dir_all(&cache_dir)?;
         SettingsService::set_last_data_cleared_at(ctx, &to_rfc3339(time::OffsetDateTime::now_utc()))
+    }
+
+    /// Breaks [`Self::cache_size_bytes`]'s total down by the top-level
+    /// subdirectory each file lives under (`thumbnails`, `stories`, or
+    /// `other` for anything else).
+    pub fn cache_breakdown(ctx: &AppContext) -> Result<CacheBreakdown> {
+        let cache_dir = ctx.data_dir.join("cache");
+        let mut breakdown = CacheBreakdown {
+            thumbnails_bytes: 0,
+            stories_bytes: 0,
+            other_bytes: 0,
+            total_bytes: 0,
+        };
+        if !cache_dir.exists() {
+            return Ok(breakdown);
+        }
+        for entry in walkdir::WalkDir::new(&cache_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            let top_level = entry
+                .path()
+                .strip_prefix(&cache_dir)
+                .ok()
+                .and_then(|p| p.components().next())
+                .map(|c| c.as_os_str().to_string_lossy().into_owned());
+            match top_level.as_deref() {
+                Some("thumbnails") => breakdown.thumbnails_bytes += size,
+                Some("stories") => breakdown.stories_bytes += size,
+                _ => breakdown.other_bytes += size,
+            }
+            breakdown.total_bytes += size;
+        }
+        Ok(breakdown)
+    }
+
+    /// If a quota is set (via [`SettingsService::cache_quota_bytes`]) and
+    /// the cache exceeds it, deletes thumbnail files oldest-mtime-first
+    /// (LRU) — excluding any variant belonging to a pinned item — until
+    /// under quota or no evictable files remain. An explicit action, not
+    /// run automatically: matches how backup/restore and encryption stay
+    /// explicit user actions elsewhere in this service.
+    pub fn enforce_cache_quota(ctx: &AppContext) -> Result<CacheEvictionReport> {
+        let mut remaining = Self::cache_size_bytes(ctx)?;
+        let Some(quota) = SettingsService::cache_quota_bytes(ctx)? else {
+            return Ok(CacheEvictionReport {
+                evicted_files: 0,
+                evicted_bytes: 0,
+                remaining_bytes: remaining,
+            });
+        };
+        if remaining <= quota {
+            return Ok(CacheEvictionReport {
+                evicted_files: 0,
+                evicted_bytes: 0,
+                remaining_bytes: remaining,
+            });
+        }
+
+        let pinned_variant_ids: HashSet<String> = {
+            let conn = ctx.db.connection();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT mv.id FROM media_variants mv \
+                     JOIN user_state us ON us.item_id = mv.item_id \
+                     WHERE us.pinned = 1",
+                )
+                .map_err(database::DatabaseError::from)?;
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(database::DatabaseError::from)?;
+            let mut set = HashSet::new();
+            for row in rows {
+                set.insert(row.map_err(database::DatabaseError::from)?);
+            }
+            set
+        };
+
+        let thumbnails_dir = ctx.data_dir.join("cache").join("thumbnails");
+        let mut evictable: Vec<(PathBuf, std::time::SystemTime, u64)> =
+            walkdir::WalkDir::new(&thumbnails_dir)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_file())
+                .filter_map(|entry| {
+                    let variant_id = entry.path().file_stem()?.to_str()?.to_string();
+                    if pinned_variant_ids.contains(&variant_id) {
+                        return None;
+                    }
+                    let metadata = entry.metadata().ok()?;
+                    Some((
+                        entry.path().to_path_buf(),
+                        metadata.modified().ok()?,
+                        metadata.len(),
+                    ))
+                })
+                .collect();
+        evictable.sort_by_key(|(_, mtime, _)| *mtime);
+
+        let mut evicted_files = 0u64;
+        let mut evicted_bytes = 0u64;
+        for (path, _mtime, size) in evictable {
+            if remaining <= quota {
+                break;
+            }
+            if fs::remove_file(&path).is_ok() {
+                remaining = remaining.saturating_sub(size);
+                evicted_files += 1;
+                evicted_bytes += size;
+            }
+        }
+
+        Ok(CacheEvictionReport {
+            evicted_files,
+            evicted_bytes,
+            remaining_bytes: remaining,
+        })
     }
 
     /// Wipes every locally stored preference, playback/reading state,
@@ -318,6 +460,98 @@ mod tests {
         assert!(SettingsService::last_data_cleared_at(&ctx)
             .unwrap()
             .is_some());
+    }
+
+    #[test]
+    fn cache_breakdown_splits_bytes_by_top_level_subdirectory() {
+        let (ctx, _dir) = test_ctx();
+        let cache_dir = ctx.data_dir.join("cache");
+        fs::create_dir_all(cache_dir.join("thumbnails")).unwrap();
+        fs::create_dir_all(cache_dir.join("stories")).unwrap();
+        fs::write(cache_dir.join("thumbnails").join("a.jpg"), vec![0u8; 100]).unwrap();
+        fs::write(cache_dir.join("stories").join("b.txt"), vec![0u8; 50]).unwrap();
+        fs::write(cache_dir.join("loose.bin"), vec![0u8; 10]).unwrap();
+
+        let breakdown = PrivacyService::cache_breakdown(&ctx).unwrap();
+        assert_eq!(breakdown.thumbnails_bytes, 100);
+        assert_eq!(breakdown.stories_bytes, 50);
+        assert_eq!(breakdown.other_bytes, 10);
+        assert_eq!(breakdown.total_bytes, 160);
+    }
+
+    fn insert_item_with_variant(ctx: &AppContext) -> (domain::ItemId, domain::VariantId) {
+        let item_id = domain::ItemId::new();
+        let variant_id = domain::VariantId::new();
+        ctx.db
+            .connection()
+            .execute(
+                "INSERT INTO media_items (id, media_type, title, rating_classification, discovered_at, updated_at)
+                 VALUES (?1, 'image', 'Item', 'unrated', datetime('now'), datetime('now'))",
+                rusqlite::params![item_id.to_string()],
+            )
+            .unwrap();
+        ctx.db
+            .connection()
+            .execute(
+                "INSERT INTO media_variants (id, item_id, mime_type, format) VALUES (?1, ?2, 'image/jpeg', 'jpeg')",
+                rusqlite::params![variant_id.to_string(), item_id.to_string()],
+            )
+            .unwrap();
+        (item_id, variant_id)
+    }
+
+    #[test]
+    fn enforce_cache_quota_is_a_no_op_when_no_quota_is_set() {
+        let (ctx, _dir) = test_ctx();
+        let (_item_id, variant_id) = insert_item_with_variant(&ctx);
+        let thumb_dir = ctx.data_dir.join("cache").join("thumbnails");
+        fs::create_dir_all(&thumb_dir).unwrap();
+        fs::write(thumb_dir.join(format!("{variant_id}.jpg")), vec![0u8; 1024]).unwrap();
+
+        let report = PrivacyService::enforce_cache_quota(&ctx).unwrap();
+        assert_eq!(report.evicted_files, 0);
+        assert_eq!(report.evicted_bytes, 0);
+        assert_eq!(report.remaining_bytes, 1024);
+        assert_eq!(PrivacyService::cache_size_bytes(&ctx).unwrap(), 1024);
+    }
+
+    #[test]
+    fn enforce_cache_quota_evicts_oldest_first_and_never_evicts_pinned() {
+        let (ctx, _dir) = test_ctx();
+        let (_old_item, old_variant) = insert_item_with_variant(&ctx);
+        let (pinned_item, pinned_variant) = insert_item_with_variant(&ctx);
+        let (_new_item, new_variant) = insert_item_with_variant(&ctx);
+        crate::user_state::UserStateService::set_pinned(&ctx, pinned_item, true).unwrap();
+
+        let thumb_dir = ctx.data_dir.join("cache").join("thumbnails");
+        fs::create_dir_all(&thumb_dir).unwrap();
+
+        let write_with_mtime = |variant_id: domain::VariantId, seconds_ago: u64| {
+            let path = thumb_dir.join(format!("{variant_id}.jpg"));
+            fs::write(&path, vec![0u8; 1000]).unwrap();
+            let mtime = std::time::SystemTime::now() - std::time::Duration::from_secs(seconds_ago);
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(mtime)
+                .unwrap();
+            path
+        };
+
+        let old_path = write_with_mtime(old_variant, 300);
+        let pinned_path = write_with_mtime(pinned_variant, 200);
+        let new_path = write_with_mtime(new_variant, 10);
+
+        SettingsService::set_cache_quota_bytes(&ctx, Some(2500)).unwrap();
+        let report = PrivacyService::enforce_cache_quota(&ctx).unwrap();
+
+        assert!(!old_path.exists(), "oldest non-pinned file must be evicted");
+        assert!(pinned_path.exists(), "pinned file must never be evicted");
+        assert!(new_path.exists(), "newest file has no need to be evicted");
+        assert_eq!(report.evicted_files, 1);
+        assert_eq!(report.evicted_bytes, 1000);
+        assert_eq!(report.remaining_bytes, 2000);
     }
 
     #[test]

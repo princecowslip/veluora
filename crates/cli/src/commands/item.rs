@@ -1,4 +1,6 @@
-use application::{ComicService, ItemService, OpenTarget, PlaybackService, StoryService};
+use application::{
+    ComicService, ItemService, OpenTarget, PlaybackService, StoryService, UserStateService,
+};
 use domain::{ItemId, Progress};
 
 use super::{open_context, parse_uuid_arg, print_error_message, print_json, report_and_exit};
@@ -210,6 +212,32 @@ pub fn read(format: OutputFormat, quiet: bool, item_id: String, chapter: Option<
         }
     }
     ExitCode::Success
+}
+
+pub fn pin(format: OutputFormat, quiet: bool, item_id: String, pinned: bool) -> ExitCode {
+    let uuid = match parse_uuid_arg(format, quiet, "item id", &item_id) {
+        Ok(u) => u,
+        Err(code) => return code,
+    };
+    let ctx = match open_context(format, quiet) {
+        Ok(ctx) => ctx,
+        Err(code) => return code,
+    };
+    match UserStateService::set_pinned(&ctx, ItemId(uuid), pinned) {
+        Ok(state) => {
+            match format {
+                OutputFormat::Json | OutputFormat::Jsonl => print_json(&state),
+                OutputFormat::Text | OutputFormat::Table => {
+                    if !quiet {
+                        let verb = if pinned { "pinned" } else { "unpinned" };
+                        println!("{verb} {item_id}");
+                    }
+                }
+            }
+            ExitCode::Success
+        }
+        Err(err) => report_and_exit(format, quiet, &err),
+    }
 }
 
 /// Slices `content` to the span covered by chapter `index`, using the

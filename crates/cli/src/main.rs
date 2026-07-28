@@ -19,6 +19,11 @@ fn main() {
             DbAction::Check => commands::db_check(format, quiet),
             DbAction::Backup { path } => commands::db_backup(format, quiet, path),
             DbAction::Restore { path } => commands::db_restore(format, quiet, path),
+            DbAction::CacheStatus => commands::db_cache_status(format, quiet),
+            DbAction::CacheQuota { bytes, clear } => {
+                commands::db_cache_quota(format, quiet, bytes, clear)
+            }
+            DbAction::CacheEnforceQuota => commands::db_cache_enforce_quota(format, quiet),
         },
         Command::Diagnostics { action } => match action {
             DiagnosticsAction::Bundle { file } => {
@@ -76,6 +81,9 @@ fn main() {
             ItemAction::Pages { item_id } => commands::item::pages(format, quiet, item_id),
             ItemAction::Read { item_id, chapter } => {
                 commands::item::read(format, quiet, item_id, chapter)
+            }
+            ItemAction::Pin { item_id, unpin } => {
+                commands::item::pin(format, quiet, item_id, !unpin)
             }
         },
     };

@@ -36,6 +36,9 @@ pub fn build_router(state: ApiState) -> Router {
         .merge(routes::search::router())
         .merge(routes::items::router())
         .merge(routes::collections::router())
+        .merge(routes::cache::router())
+        .merge(routes::home::router())
+        .merge(routes::privacy::router())
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     Router::new()
@@ -132,6 +135,23 @@ pub fn write_token_file(data_dir: &Path, token: &str) -> std::io::Result<PathBuf
     Ok(path)
 }
 
+pub fn port_file_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("api-port")
+}
+
+/// Writes the bound port to `<data_dir>/api-port`, mirroring
+/// [`write_token_file`]'s discovery convention. Unlike the token, the
+/// port isn't a secret — this is what lets the TUI (a separate process
+/// per `docs/12-system-architecture.md`'s notcurses TUI boundary, which
+/// cannot link this crate in-process) find the loopback API without a
+/// fixed, hardcoded port number.
+pub fn write_port_file(data_dir: &Path, port: u16) -> std::io::Result<PathBuf> {
+    fs::create_dir_all(data_dir)?;
+    let path = port_file_path(data_dir);
+    fs::write(&path, port.to_string())?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,6 +164,14 @@ mod tests {
         assert_eq!(a.len(), 64);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn write_port_file_writes_the_plain_port_number() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_port_file(dir.path(), 54321).unwrap();
+        assert_eq!(path, port_file_path(dir.path()));
+        assert_eq!(fs::read_to_string(path).unwrap(), "54321");
     }
 
     #[tokio::test]
