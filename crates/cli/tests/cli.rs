@@ -658,3 +658,105 @@ fn db_restore_rejects_an_invalid_backup_file() {
         .assert()
         .failure();
 }
+
+fn fixture_path(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+#[test]
+fn plugin_validate_reports_a_valid_manifest() {
+    let (mut cmd, _dir) = isolated_cmd();
+    cmd.arg("plugin")
+        .arg("validate")
+        .arg(fixture_path("valid_plugin.yaml"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("org.example.connector"))
+        .stdout(predicate::str::contains("valid: yes"));
+}
+
+#[test]
+fn plugin_validate_reports_issues_for_an_invalid_manifest() {
+    let (mut cmd, _dir) = isolated_cmd();
+    cmd.arg("plugin")
+        .arg("validate")
+        .arg(fixture_path("invalid_plugin.yaml"))
+        .assert()
+        .failure()
+        .code(2)
+        .stdout(predicate::str::contains("valid: no"))
+        .stdout(predicate::str::contains("api_version"));
+}
+
+#[test]
+fn plugin_registry_add_list_and_set_status_round_trip() {
+    let (mut cmd, home) = isolated_cmd();
+    cmd.arg("plugin")
+        .arg("registry-add")
+        .arg(fixture_path("valid_plugin.yaml"))
+        .arg("--status")
+        .arg("beta")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("added org.example.connector"));
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut list_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut list_cmd);
+    list_cmd
+        .arg("plugin")
+        .arg("registry-list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("org.example.connector"))
+        .stdout(predicate::str::contains("Beta"));
+
+    let mut status_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut status_cmd);
+    status_cmd
+        .arg("plugin")
+        .arg("registry-set-status")
+        .arg("org.example.connector")
+        .arg("--status")
+        .arg("disabled")
+        .assert()
+        .success();
+
+    let mut list_cmd2 = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut list_cmd2);
+    list_cmd2
+        .arg("plugin")
+        .arg("registry-list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Disabled"));
+}
+
+#[test]
+fn plugin_registry_list_on_a_fresh_data_dir_is_empty() {
+    let (mut cmd, _dir) = isolated_cmd();
+    cmd.arg("plugin")
+        .arg("registry-list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no plugins registered"));
+}
+
+#[test]
+fn plugin_registry_set_status_on_an_unknown_id_is_not_found() {
+    let (mut cmd, _dir) = isolated_cmd();
+    cmd.arg("plugin")
+        .arg("registry-set-status")
+        .arg("does.not.exist")
+        .arg("--status")
+        .arg("disabled")
+        .assert()
+        .failure()
+        .code(3);
+}

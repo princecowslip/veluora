@@ -1,0 +1,18 @@
+id: org.example.connector
+name: Example Source
+version: 1.2.0
+publisher: Example
+api_version: 1
+entrypoint: plugin.wasm
+permissions:
+  network:
+    domains:
+      - api.example.test
+  credentials:
+    scopes:
+      - source
+capabilities:
+  - search
+  - browse
+media_types:
+  - image

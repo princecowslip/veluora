@@ -71,6 +71,8 @@ Decide:
 - Revocation mechanism
 - Connector release cadence
 
+Milestone H prototyped the *local* half of "official registry governance" — `crates/plugin-host` implements a manifest schema/validator, a default-deny WASM sandbox, and a local, file-backed registry with the Stable/Beta/Degraded/Disabled/Removed status lifecycle. What's still undecided here is everything about *distribution*: a real signed remote registry, publisher PKI, a revocation-list fetch mechanism, and who owns review — none of which can be prototyped without a registry server, and none of which this milestone builds.
+
 ### Metadata providers
 
 Decide:

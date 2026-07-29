@@ -3,6 +3,7 @@ pub mod diagnostics;
 pub mod favorite;
 pub mod item;
 pub mod library;
+pub mod plugin;
 pub mod search;
 
 use std::path::PathBuf;

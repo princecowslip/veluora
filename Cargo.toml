@@ -6,6 +6,7 @@ members = [
     "crates/media",
     "crates/application",
     "crates/local-api",
+    "crates/plugin-host",
     "crates/cli",
     "crates/gui",
 ]
@@ -20,6 +21,7 @@ domain = { path = "crates/domain" }
 database = { path = "crates/database" }
 media = { path = "crates/media" }
 application = { path = "crates/application" }
+plugin-host = { path = "crates/plugin-host" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -44,6 +46,8 @@ aes-gcm = "0.10"
 base64 = "0.22"
 iced = { version = "0.13", features = ["image", "tokio"] }
 rfd = "0.15"
+wasmtime = "47.0.2"
+serde_yaml = "0.9.34"
 
 [profile.release]
 opt-level = 3

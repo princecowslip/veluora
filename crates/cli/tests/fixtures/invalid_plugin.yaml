@@ -1,0 +1,9 @@
+id: notreversedns
+name: Bad Example
+version: 1.0.0
+publisher: Example
+api_version: 99
+entrypoint: plugin.wasm
+capabilities: []
+media_types:
+  - image
