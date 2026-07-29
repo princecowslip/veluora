@@ -5,7 +5,7 @@ mod exit_code;
 use clap::Parser;
 use cli_args::{
     Cli, CollectionAction, Command, DbAction, DiagnosticsAction, FavoriteAction, ItemAction,
-    LibraryAction,
+    LibraryAction, PluginAction,
 };
 
 fn main() {
@@ -84,6 +84,19 @@ fn main() {
             }
             ItemAction::Pin { item_id, unpin } => {
                 commands::item::pin(format, quiet, item_id, !unpin)
+            }
+        },
+        Command::Plugin { action } => match action {
+            PluginAction::Validate { manifest_path } => {
+                commands::plugin::validate(format, quiet, manifest_path)
+            }
+            PluginAction::RegistryList => commands::plugin::registry_list(format, quiet),
+            PluginAction::RegistryAdd {
+                manifest_path,
+                status,
+            } => commands::plugin::registry_add(format, quiet, manifest_path, status),
+            PluginAction::RegistrySetStatus { id, status } => {
+                commands::plugin::registry_set_status(format, quiet, id, status)
             }
         },
     };

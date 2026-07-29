@@ -80,6 +80,15 @@ pub enum Command {
         #[command(subcommand)]
         action: ItemAction,
     },
+    /// Plugin manifest validation and local registry governance
+    /// (`docs/18-plugin-system.md`). Infrastructure only — there is no
+    /// real connector-backed plugin to install yet (Milestone F,
+    /// connectors, was skipped), so nothing here executes a plugin
+    /// against real library data.
+    Plugin {
+        #[command(subcommand)]
+        action: PluginAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -224,5 +233,49 @@ pub enum ItemAction {
         item_id: String,
         #[arg(long)]
         unpin: bool,
+    },
+}
+
+/// Mirrors `plugin_host::PluginStatus` — kept separate so `plugin-host`
+/// (a library crate) doesn't need a `clap` dependency just for this.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PluginStatusArg {
+    Stable,
+    Beta,
+    Degraded,
+    Disabled,
+    Removed,
+}
+
+impl From<PluginStatusArg> for plugin_host::PluginStatus {
+    fn from(value: PluginStatusArg) -> Self {
+        match value {
+            PluginStatusArg::Stable => plugin_host::PluginStatus::Stable,
+            PluginStatusArg::Beta => plugin_host::PluginStatus::Beta,
+            PluginStatusArg::Degraded => plugin_host::PluginStatus::Degraded,
+            PluginStatusArg::Disabled => plugin_host::PluginStatus::Disabled,
+            PluginStatusArg::Removed => plugin_host::PluginStatus::Removed,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+pub enum PluginAction {
+    /// Parses and validates a plugin manifest YAML file, printing its
+    /// permission summary (`docs/18`'s "Permissions UI" fields).
+    Validate { manifest_path: PathBuf },
+    /// Lists every plugin in the local registry.
+    RegistryList,
+    /// Adds a manifest to the local registry under a given status.
+    RegistryAdd {
+        manifest_path: PathBuf,
+        #[arg(long, value_enum, default_value_t = PluginStatusArg::Beta)]
+        status: PluginStatusArg,
+    },
+    /// Transitions an already-registered plugin's status.
+    RegistrySetStatus {
+        id: String,
+        #[arg(long, value_enum)]
+        status: PluginStatusArg,
     },
 }

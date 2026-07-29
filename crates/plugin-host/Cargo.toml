@@ -1,0 +1,21 @@
+[package]
+name = "plugin-host"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "plugin_host"
+
+[dependencies]
+domain.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+thiserror.workspace = true
+directories.workspace = true
+wasmtime.workspace = true
+serde_yaml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
