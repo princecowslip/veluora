@@ -5,7 +5,7 @@ mod exit_code;
 use clap::Parser;
 use cli_args::{
     Cli, CollectionAction, Command, DbAction, DiagnosticsAction, FavoriteAction, ItemAction,
-    LibraryAction, PluginAction,
+    LibraryAction, PluginAction, SourceAction,
 };
 
 fn main() {
@@ -85,6 +85,33 @@ fn main() {
             ItemAction::Pin { item_id, unpin } => {
                 commands::item::pin(format, quiet, item_id, !unpin)
             }
+        },
+        Command::Source { action } => match action {
+            SourceAction::List => commands::source::list(format, quiet),
+            SourceAction::Add {
+                connector_id,
+                display_name,
+                config_json,
+            } => commands::source::add(format, quiet, connector_id, display_name, config_json),
+            SourceAction::Remove { source_id } => {
+                commands::source::remove(format, quiet, source_id)
+            }
+            SourceAction::Enable { source_id } => {
+                commands::source::set_enabled(format, quiet, source_id, true)
+            }
+            SourceAction::Disable { source_id } => {
+                commands::source::set_enabled(format, quiet, source_id, false)
+            }
+            SourceAction::HealthCheck { source_id } => {
+                commands::source::health_check(format, quiet, source_id)
+            }
+            SourceAction::Browse { source_id, query } => {
+                commands::source::browse(format, quiet, source_id, query)
+            }
+            SourceAction::Import {
+                source_id,
+                remote_item_json,
+            } => commands::source::import(format, quiet, source_id, remote_item_json),
         },
         Command::Plugin { action } => match action {
             PluginAction::Validate { manifest_path } => {

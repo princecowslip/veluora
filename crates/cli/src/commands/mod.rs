@@ -5,6 +5,7 @@ pub mod item;
 pub mod library;
 pub mod plugin;
 pub mod search;
+pub mod source;
 
 use std::path::PathBuf;
 

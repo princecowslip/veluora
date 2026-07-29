@@ -7,6 +7,7 @@
 
 pub mod block_rule;
 pub mod collection;
+pub mod connector;
 pub mod download;
 pub mod ids;
 pub mod library_root;
@@ -20,6 +21,9 @@ pub mod variant;
 
 pub use block_rule::{BlockCandidate, BlockRule, RuleType, Scope};
 pub use collection::{Collection, CollectionType};
+pub use connector::{
+    AuthMethod, ConnectorCapabilities, ConnectorResult, PaginationMode, RateLimit, RemoteItem,
+};
 pub use download::{ChecksumState, Download, DownloadState};
 pub use ids::*;
 pub use library_root::LibraryRoot;
