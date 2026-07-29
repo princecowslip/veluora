@@ -31,6 +31,22 @@ fn doctor_reports_ok_in_text_mode() {
         .stdout(predicate::str::contains("status:"));
 }
 
+/// `docs/28-release-checklist.md`'s "plain output works without
+/// colour" accessibility gate — no color crate is a dependency
+/// anywhere in this workspace, so this is already structurally true;
+/// this locks it in as a real regression guard rather than leaving it
+/// untested.
+#[test]
+fn cli_text_output_never_contains_ansi_escape_codes() {
+    let (mut cmd, _dir) = isolated_cmd();
+    let output = cmd.arg("doctor").output().unwrap();
+    assert!(output.status.success());
+    assert!(
+        !output.stdout.contains(&0x1b),
+        "CLI text output must never contain ANSI escape sequences"
+    );
+}
+
 #[test]
 fn doctor_json_output_includes_schema_version() {
     let (mut cmd, _dir) = isolated_cmd();

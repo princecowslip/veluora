@@ -317,6 +317,93 @@ mod tests {
         assert!(!default_pinned);
     }
 
+    /// The "upgrade... tested" release gate from `docs/46`'s Workstream
+    /// 13 — every other migration test opens a fresh, fully-migrated
+    /// database, which never actually exercises evolving a database
+    /// that already has real user data on an old schema version. This
+    /// pins a real database file at migration `0001` only, inserts
+    /// real rows, then reopens it through the normal `Database::open`
+    /// path (which applies every pending migration, `0002`–`0005`) and
+    /// confirms the pre-existing data survives with sensible defaults
+    /// for the columns added along the way.
+    #[test]
+    fn upgrading_a_v1_only_database_with_real_data_preserves_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("v1.db");
+
+        {
+            let mut conn = Connection::open(&db_path).unwrap();
+            conn.pragma_update(None, "foreign_keys", true).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at TEXT NOT NULL
+                );",
+            )
+            .unwrap();
+
+            let migration_0001 = &migrations::MIGRATIONS[0];
+            assert_eq!(
+                migration_0001.version, 1,
+                "migrations::MIGRATIONS[0] must be migration 1"
+            );
+            let tx = conn.transaction().unwrap();
+            tx.execute_batch(migration_0001.sql).unwrap();
+            tx.execute(
+                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (1, 'init', datetime('now'))",
+                [],
+            )
+            .unwrap();
+            tx.commit().unwrap();
+
+            conn.execute(
+                "INSERT INTO media_items (id, media_type, title, rating_classification, discovered_at, updated_at)
+                 VALUES ('99999999-9999-9999-9999-999999999999', 'video', 'Pre-existing v1 Item', 'unrated', datetime('now'), datetime('now'))",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO user_state (item_id, favorite) VALUES ('99999999-9999-9999-9999-999999999999', 1)",
+                [],
+            )
+            .unwrap();
+            // `conn` drops here, closing the v1-only database file.
+        }
+
+        // Reopening through the normal path applies every migration
+        // still pending (0002 through 0005) against the real file.
+        let db = Database::open(&db_path).expect("upgrade should succeed");
+        assert_eq!(
+            db.applied_migration_count().unwrap(),
+            migrations::MIGRATIONS.len() as i64
+        );
+
+        let title: String = db
+            .connection()
+            .query_row(
+                "SELECT title FROM media_items WHERE id = '99999999-9999-9999-9999-999999999999'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(title, "Pre-existing v1 Item");
+
+        let (favorite, pinned): (bool, bool) = db
+            .connection()
+            .query_row(
+                "SELECT favorite, pinned FROM user_state WHERE item_id = '99999999-9999-9999-9999-999999999999'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(favorite, "pre-existing favorite must survive the upgrade");
+        assert!(
+            !pinned,
+            "a column added after the row existed must default sensibly"
+        );
+    }
+
     #[test]
     fn fts5_table_exists() {
         let db = Database::open_in_memory().expect("open");

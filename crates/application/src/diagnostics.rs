@@ -157,12 +157,21 @@ mod tests {
         assert!(!bundle.metadata_encryption_enabled);
     }
 
+    /// Covers every exclusion category `docs/23-operations-and-observability.md`'s
+    /// support-bundle section names (titles, local paths, notes, tags,
+    /// descriptions) — not just the two the original version of this
+    /// test checked. `SupportBundle`'s fields are all aggregate counts
+    /// today, so none of these *could* leak through the current code,
+    /// but this locks that in as a real regression guard against a
+    /// future field accidentally pulling from per-item data.
     #[test]
-    fn support_bundle_never_contains_titles_or_local_paths() {
+    fn support_bundle_never_contains_titles_local_paths_notes_or_private_tags() {
         let dir = tempfile::tempdir().unwrap();
         let ctx = AppContext::open_at(dir.path()).unwrap();
         let secret_title = "My Extremely Private Vacation Video";
         let secret_path = "/home/someone/very/private/folder/clip.mp4";
+        let secret_note = "Remember to delete this before showing anyone";
+        let secret_tag = "extremely-embarrassing-tag";
         ctx.db
             .connection()
             .execute(
@@ -179,12 +188,26 @@ mod tests {
                 rusqlite::params![secret_path],
             )
             .unwrap();
+        crate::user_state::UserStateService::set_notes(
+            &ctx,
+            domain::ItemId(uuid::Uuid::parse_str("44444444-4444-4444-4444-444444444444").unwrap()),
+            Some(secret_note),
+        )
+        .unwrap();
+        crate::user_state::UserStateService::set_private_tags(
+            &ctx,
+            domain::ItemId(uuid::Uuid::parse_str("44444444-4444-4444-4444-444444444444").unwrap()),
+            &[secret_tag.to_string()],
+        )
+        .unwrap();
 
         let bundle = DiagnosticsService::support_bundle(&ctx).unwrap();
         let serialized = serde_json::to_string(&bundle).unwrap();
         assert!(!serialized.contains(secret_title));
         assert!(!serialized.contains(secret_path));
         assert!(!serialized.contains("/home/someone"));
+        assert!(!serialized.contains(secret_note));
+        assert!(!serialized.contains(secret_tag));
     }
 
     #[test]

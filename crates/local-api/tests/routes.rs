@@ -819,6 +819,36 @@ async fn unauthenticated_requests_to_source_routes_are_rejected() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
+/// Regression guard for `docs/28-release-checklist.md`'s "cross-origin
+/// protections pass" gate — `local-api` has no CORS layer at all, so a
+/// browser page on another origin can't read responses even over
+/// loopback. Confirms no permissive CORS layer has been accidentally
+/// added: a request carrying a foreign `Origin` header must never get
+/// an `Access-Control-Allow-Origin` header back.
+#[tokio::test]
+async fn no_route_ever_returns_a_permissive_cors_header() {
+    let (state, token, _media_dir) = test_state().await;
+    let response = build_router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/health")
+                .header(header::ORIGIN, "https://evil.example")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none(),
+        "local-api must never grant a cross-origin page read access to its responses"
+    );
+}
+
 #[tokio::test]
 async fn malformed_search_query_is_a_bad_request() {
     let (state, token, _media_dir) = test_state().await;
