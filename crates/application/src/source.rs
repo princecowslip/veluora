@@ -40,7 +40,7 @@ pub const LOCAL_FILESYSTEM_CONNECTOR_ID: ConnectorId = ConnectorId(uuid::Uuid::f
 /// looked like, including which query clauses (if any) the connector
 /// itself didn't support and had to be applied host-side — the
 /// "translation report" `docs/14`'s query-translation section asks for.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowseReport {
     pub result: ConnectorResult<Vec<RemoteItem>>,
     pub unsupported_clauses: Vec<String>,

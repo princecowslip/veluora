@@ -4,4 +4,5 @@ pub mod lock;
 pub mod onboarding;
 pub mod privacy_center;
 pub mod settings;
+pub mod sources;
 pub mod viewer;

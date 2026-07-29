@@ -4,6 +4,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Veloura 
 
 ## [Unreleased]
 
+### GUI Sources management screen
+
+- New `crates/gui` Sources screen: add a source (local filesystem or RSS/Atom feed), enable/disable, remove, health-check, browse, and import a browsed item into the local library — closing the gap left by Milestone F's connectors shipping after Milestone D's GUI.
+
 ### Workstream 13 — Quality and release (hardening pass)
 
 - `FeedConnector` now enforces a response-size cap, preventing a malicious or misconfigured feed from exhausting memory.

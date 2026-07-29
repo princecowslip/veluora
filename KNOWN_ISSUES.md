@@ -22,7 +22,6 @@ An honest list of what's explicitly out of scope so far, compiled from each mile
 
 ## GUI (`crates/gui`)
 
-- No Sources management screen — connectors (Milestone F) shipped after the GUI (Milestone D) did, so there's no UI for configuring a connector-backed source yet, only CLI/local-api.
 - No embedded video/audio playback — video/audio open via a configured external player, matching the CLI's behavior.
 - No Discover, Downloads, or standalone Diagnostics screen (the Settings screen has a diagnostics panel instead).
 - Styling is functional-first, not pixel-accurate to `docs/52-sample-ui-spec.md`.
