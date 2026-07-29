@@ -17,7 +17,7 @@ An honest list of what's explicitly out of scope so far, compiled from each mile
 ## Terminal UI (`tui/`)
 
 - Tier A (Kitty/Sixel inline bitmap thumbnails) is unimplemented — the TUI only supports Tier B (Unicode/color) and Tier C (text-only). Cards show a media-type label instead of a decoded image.
-- No Discover, Sources, Queue, or Settings views, and no command-palette/collection-picker/shortcut-help overlay pile — none had real backing data or meaningful terminal settings when Milestone G shipped (before connectors existed).
+- No Discover, Queue, or Settings views, and no command-palette/collection-picker/shortcut-help overlay pile — none had real backing data or meaningful terminal settings when Milestone G shipped (before connectors existed). Discover specifically stays deferred even now that connectors exist: `local-api` has no unified cross-source search/browse endpoint — `POST /api/v1/search` is local-library-only, and browsing a connector-backed source is a separate, explicit per-source action (`GET /sources/:id/browse`) — so there's no single call to back a "Discover across all sources" view without first adding a new aggregating route.
 - Item deletion and "clear history" aren't exposed from the TUI — `local-api` has no HTTP route for either (the GUI/CLI call the relevant services in-process instead).
 
 ## GUI (`crates/gui`)

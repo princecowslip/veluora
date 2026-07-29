@@ -47,7 +47,7 @@ video/audio items (defaults to `xdg-open`).
 
 ```
 F1  Home            F2  Library         F3  Collections
-F4  Downloads/Cache F5  Privacy         F6  Diagnostics
+F4  Downloads/Cache F5  Privacy         F6  Diagnostics       F7  Sources
 j/k or Up/Down  navigate     Enter/Space  open or select     Esc  back/cancel
 /   search (Library)          f  favorite (Item Detail)      p  pin (Item Detail)
 c   add to collection (Item Detail)      Ctrl+L  lock        ?  help      Q  quit
