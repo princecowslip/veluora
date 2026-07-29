@@ -41,3 +41,25 @@ jobs:
 
       - name: build
         run: cargo build --workspace
+
+  tui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install TUI build dependencies
+        run: ./scripts/install-tui-deps.sh
+
+      - name: Configure
+        run: cmake --preset default -S tui -B build/tui
+
+      - name: Build
+        run: cmake --build build/tui
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@v2

@@ -18,6 +18,40 @@ use crate::Connector;
 /// name at runtime, only by this stable id.
 pub const FEED_CONNECTOR_ID: ConnectorId = ConnectorId(Uuid::from_u128(1));
 
+/// A malicious or misconfigured feed shouldn't be able to exhaust
+/// memory — `docs/22-testing-strategy.md`'s "oversized response"
+/// security test, and `docs/14-source-connectors.md`'s "response-size
+/// limit" networking control.
+const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Reads `response`'s body up to `max_bytes`, rejecting it as soon as
+/// that limit is exceeded — checked against a declared `Content-Length`
+/// up front where present, but enforced against the actual bytes
+/// streamed regardless, since a server can omit or lie about that
+/// header (e.g. chunked transfer-encoding).
+async fn read_capped_body(
+    mut response: reqwest::Response,
+    max_bytes: u64,
+) -> Result<Vec<u8>, String> {
+    if let Some(len) = response.content_length() {
+        if len > max_bytes {
+            return Err(format!(
+                "response declared {len} bytes, exceeding the {max_bytes}-byte limit"
+            ));
+        }
+    }
+    let mut buf = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        buf.extend_from_slice(&chunk);
+        if buf.len() as u64 > max_bytes {
+            return Err(format!(
+                "response exceeded the {max_bytes}-byte limit while streaming"
+            ));
+        }
+    }
+    Ok(buf)
+}
+
 /// Reads the feed URL a `Source` is configured with out of its
 /// `configuration_json` — the only per-source state this connector
 /// needs; it's otherwise stateless (see `trait_def.rs`'s doc comment).
@@ -101,9 +135,9 @@ impl Connector for FeedConnector {
             ));
         }
 
-        let bytes = match response.bytes().await {
+        let bytes = match read_capped_body(response, MAX_RESPONSE_BYTES).await {
             Ok(bytes) => bytes,
-            Err(e) => return ConnectorResult::TemporaryFailure(e.to_string()),
+            Err(msg) => return ConnectorResult::PermanentFailure(msg),
         };
 
         match feed_rs::parser::parse(&bytes[..]) {

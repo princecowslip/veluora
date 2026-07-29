@@ -13,6 +13,10 @@ use connectors::{Connector, FeedConnector, FEED_CONNECTOR_ID};
 use domain::{ConnectorResult, HealthState, Source, SourceId};
 
 async fn spawn_fixture_server(body: &'static str) -> SocketAddr {
+    spawn_owned_fixture_server(body.to_string()).await
+}
+
+async fn spawn_owned_fixture_server(body: String) -> SocketAddr {
     let app = Router::new().route("/feed.xml", get(move || async move { body }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -91,6 +95,23 @@ async fn browse_maps_a_404_to_not_found() {
     match FeedConnector::new().browse(&source, None).await {
         ConnectorResult::NotFound => {}
         other => panic!("expected NotFound, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn browse_rejects_an_oversized_response() {
+    // One byte over the connector's response-size cap (16 MiB) —
+    // proves the limit is actually enforced against real bytes over a
+    // real connection, not just documented.
+    let oversized_body = "x".repeat(16 * 1024 * 1024 + 1);
+    let addr = spawn_owned_fixture_server(oversized_body).await;
+    let source = source_for(format!("http://{addr}/feed.xml"));
+
+    match FeedConnector::new().browse(&source, None).await {
+        ConnectorResult::PermanentFailure(msg) => {
+            assert!(msg.contains("exceed"), "message should explain why: {msg}");
+        }
+        other => panic!("expected PermanentFailure, got {other:?}"),
     }
 }
 
