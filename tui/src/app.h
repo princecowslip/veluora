@@ -15,6 +15,7 @@
 #include "views/item_detail_view.h"
 #include "views/library_view.h"
 #include "views/privacy_view.h"
+#include "views/sources_view.h"
 #include "views/view.h"
 
 namespace veloura {
@@ -26,6 +27,7 @@ enum class ViewId {
   Cache,
   Privacy,
   Diagnostics,
+  Sources,
   ItemDetail,
 };
 
@@ -69,6 +71,7 @@ class App {
   std::unique_ptr<CacheView> cache_view_;
   std::unique_ptr<PrivacyView> privacy_view_;
   std::unique_ptr<DiagnosticsView> diagnostics_view_;
+  std::unique_ptr<SourcesView> sources_view_;
   std::unique_ptr<ItemDetailView> item_detail_view_;
 
   ViewId active_ = ViewId::Home;

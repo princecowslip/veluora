@@ -4,6 +4,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Veloura 
 
 ## [Unreleased]
 
+### TUI Sources view
+
+- New `tui/` Sources view (F7): list, add (local filesystem or RSS/Atom feed), enable/disable, remove, health-check, browse, and import a browsed item into the local library — the terminal counterpart of the GUI Sources screen and `veloura source ...`. Discover stays deliberately out of scope (no unified cross-source endpoint exists in `local-api` yet — see `KNOWN_ISSUES.md`).
+
 ### GUI Sources management screen
 
 - New `crates/gui` Sources screen: add a source (local filesystem or RSS/Atom feed), enable/disable, remove, health-check, browse, and import a browsed item into the local library — closing the gap left by Milestone F's connectors shipping after Milestone D's GUI.
