@@ -80,6 +80,11 @@ pub enum Command {
         #[command(subcommand)]
         action: ItemAction,
     },
+    /// Connector-backed sources (`docs/14-source-connectors.md`).
+    Source {
+        #[command(subcommand)]
+        action: SourceAction,
+    },
     /// Plugin manifest validation and local registry governance
     /// (`docs/18-plugin-system.md`). Infrastructure only — there is no
     /// real connector-backed plugin to install yet (Milestone F,
@@ -257,6 +262,47 @@ impl From<PluginStatusArg> for plugin_host::PluginStatus {
             PluginStatusArg::Removed => plugin_host::PluginStatus::Removed,
         }
     }
+}
+
+#[derive(Subcommand)]
+pub enum SourceAction {
+    List,
+    /// `connector_id` is a fixed, well-known id — see
+    /// `connectors::FEED_CONNECTOR_ID` / `application::LOCAL_FILESYSTEM_CONNECTOR_ID`.
+    Add {
+        connector_id: String,
+        display_name: String,
+        /// A JSON object, e.g. `{"url":"https://example.test/feed.xml"}`
+        /// for the feed connector. Named `--config-json` (and the
+        /// field `config_json`, not `config`), since `config` is
+        /// already the global config-file-path arg's id.
+        #[arg(long = "config-json", default_value = "{}")]
+        config_json: String,
+    },
+    Remove {
+        source_id: String,
+    },
+    Enable {
+        source_id: String,
+    },
+    Disable {
+        source_id: String,
+    },
+    HealthCheck {
+        source_id: String,
+    },
+    Browse {
+        source_id: String,
+        #[arg(long)]
+        query: Option<String>,
+    },
+    /// Materializes a browsed remote item into the local library.
+    Import {
+        source_id: String,
+        /// A `domain::RemoteItem` JSON object.
+        #[arg(long = "json")]
+        remote_item_json: String,
+    },
 }
 
 #[derive(Subcommand)]

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed</title>
+    <link>https://example.test/</link>
+    <description>A fixture feed for connector tests.</description>
+    <item>
+      <title>First Story</title>
+      <link>https://example.test/first-story</link>
+      <guid>https://example.test/first-story</guid>
+      <description>The first story in the feed.</description>
+      <category>fiction</category>
+      <category>short</category>
+    </item>
+    <item>
+      <title>Second Story</title>
+      <link>https://example.test/second-story</link>
+      <guid>https://example.test/second-story</guid>
+      <description>The second story in the feed.</description>
+    </item>
+  </channel>
+</rss>

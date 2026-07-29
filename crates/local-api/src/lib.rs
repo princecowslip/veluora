@@ -39,6 +39,7 @@ pub fn build_router(state: ApiState) -> Router {
         .merge(routes::cache::router())
         .merge(routes::home::router())
         .merge(routes::privacy::router())
+        .merge(routes::sources::router())
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     Router::new()

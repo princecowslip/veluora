@@ -198,6 +198,38 @@ mod tests {
             .unwrap();
     }
 
+    /// A connector-imported item (`SourceService::import_remote_item`)
+    /// has `local_path = NULL` and only `remote_url` set — there's no
+    /// real download workstream yet (Milestone F descopes it). Confirms
+    /// `resolve_open` degrades to a clear `NotFound`, not a panic —
+    /// `resolve_variant`'s `WHERE local_path IS NOT NULL` already
+    /// excludes such a row from matching at all.
+    #[test]
+    fn resolve_open_on_a_connector_imported_item_with_no_local_file_is_not_found() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        let source = crate::source::SourceService::add(
+            &ctx,
+            connectors::FEED_CONNECTOR_ID,
+            "Test Feed".to_string(),
+            serde_json::json!({ "url": "https://example.test/feed.xml" }),
+        )
+        .unwrap();
+        let remote_item = domain::RemoteItem {
+            source_item_id: "guid-1".to_string(),
+            title: "Remote Video".to_string(),
+            description: None,
+            canonical_url: Some("https://example.test/video.mp4".to_string()),
+            tags: Vec::new(),
+            media_type: MediaType::Video,
+            thumbnail_url: None,
+        };
+        let item_id =
+            crate::source::SourceService::import_remote_item(&ctx, source.id, remote_item).unwrap();
+
+        let err = PlaybackService::resolve_open(&ctx, item_id).unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)));
+    }
+
     #[test]
     fn resolve_open_for_video_returns_external_player_target_and_touches_last_opened() {
         let ctx = AppContext::open_in_memory().unwrap();

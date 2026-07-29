@@ -5,3 +5,4 @@ pub mod items;
 pub mod library;
 pub mod privacy;
 pub mod search;
+pub mod sources;

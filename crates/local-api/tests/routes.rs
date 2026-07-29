@@ -634,6 +634,191 @@ async fn privacy_status_and_verify_round_trip_via_http() {
     assert_eq!(verify_body["ok"], true);
 }
 
+const FEED_CONNECTOR_ID: &str = "00000000-0000-0000-0000-000000000001";
+const LOCAL_FILESYSTEM_CONNECTOR_ID: &str = "00000000-0000-0000-0000-000000000000";
+
+#[tokio::test]
+async fn sources_lifecycle_via_http() {
+    let (state, token, _media_dir) = test_state().await;
+
+    let (status, source) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/sources",
+        Some(json!({
+            "connector_id": FEED_CONNECTOR_ID,
+            "display_name": "My Feed",
+            "configuration_json": { "url": "https://example.test/feed.xml" },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let source_id = source["id"].as_str().unwrap().to_string();
+
+    let (status, sources) = call(&state, &token, "GET", "/api/v1/sources", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(sources.as_array().unwrap().len(), 1);
+
+    let (status, _) = call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/sources/{source_id}/disable"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/sources/{source_id}/enable"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = call(
+        &state,
+        &token,
+        "DELETE",
+        &format!("/api/v1/sources/{source_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, sources) = call(&state, &token, "GET", "/api/v1/sources", None).await;
+    assert!(sources.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn local_source_health_check_and_browse_via_http() {
+    let (state, token, media_dir) = test_state().await;
+    std::fs::write(media_dir.path().join("clip.mp4"), b"fake video bytes").unwrap();
+    call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/library/roots",
+        Some(json!({ "path": media_dir.path().to_string_lossy() })),
+    )
+    .await;
+    call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/library/scan",
+        Some(json!({})),
+    )
+    .await;
+
+    let (status, source) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/sources",
+        Some(json!({
+            "connector_id": LOCAL_FILESYSTEM_CONNECTOR_ID,
+            "display_name": "Local Library",
+            "configuration_json": {},
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let source_id = source["id"].as_str().unwrap().to_string();
+
+    let (status, health) = call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/sources/{source_id}/health-check"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(health, "healthy");
+
+    let (status, report) = call(
+        &state,
+        &token,
+        "GET",
+        &format!("/api/v1/sources/{source_id}/browse?query=type:video"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(report["result"]["status"], "success");
+    assert_eq!(report["result"]["data"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn import_via_http_creates_a_searchable_item() {
+    let (state, token, _media_dir) = test_state().await;
+
+    let (_, source) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/sources",
+        Some(json!({
+            "connector_id": FEED_CONNECTOR_ID,
+            "display_name": "My Feed",
+            "configuration_json": { "url": "https://example.test/feed.xml" },
+        })),
+    )
+    .await;
+    let source_id = source["id"].as_str().unwrap().to_string();
+
+    let (status, imported) = call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/sources/{source_id}/import"),
+        Some(json!({
+            "source_item_id": "guid-1",
+            "title": "Imported Story",
+            "description": null,
+            "canonical_url": "https://example.test/story",
+            "tags": ["fiction"],
+            "media_type": "story",
+            "thumbnail_url": null,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let item_id = imported["item_id"].as_str().unwrap().to_string();
+
+    let (status, results) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/search",
+        Some(json!({ "query": "Imported" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(results["total"], 1);
+    assert_eq!(results["items"][0]["item_id"], item_id);
+}
+
+#[tokio::test]
+async fn unauthenticated_requests_to_source_routes_are_rejected() {
+    let (state, _token, _media_dir) = test_state().await;
+    let response = build_router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/sources")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
 #[tokio::test]
 async fn malformed_search_query_is_a_bad_request() {
     let (state, token, _media_dir) = test_state().await;

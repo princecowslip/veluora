@@ -760,3 +760,204 @@ fn plugin_registry_set_status_on_an_unknown_id_is_not_found() {
         .failure()
         .code(3);
 }
+
+const FEED_CONNECTOR_ID: &str = "00000000-0000-0000-0000-000000000001";
+const LOCAL_FILESYSTEM_CONNECTOR_ID: &str = "00000000-0000-0000-0000-000000000000";
+
+#[test]
+fn source_list_on_a_fresh_data_dir_is_empty() {
+    let (mut cmd, _dir) = isolated_cmd();
+    cmd.arg("source")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no sources configured"));
+}
+
+#[test]
+fn source_add_list_enable_disable_and_remove_round_trip() {
+    let (mut cmd, home) = isolated_cmd();
+    let output = cmd
+        .args([
+            "--output",
+            "json",
+            "source",
+            "add",
+            FEED_CONNECTOR_ID,
+            "My Feed",
+        ])
+        .args([
+            "--config-json",
+            r#"{"url":"https://example.test/feed.xml"}"#,
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let source_id = json["id"].as_str().unwrap().to_string();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut list_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut list_cmd);
+    list_cmd
+        .arg("source")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("My Feed"));
+
+    let mut disable_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut disable_cmd);
+    disable_cmd
+        .arg("source")
+        .arg("disable")
+        .arg(&source_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("disabled"));
+
+    let mut enable_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut enable_cmd);
+    enable_cmd
+        .arg("source")
+        .arg("enable")
+        .arg(&source_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("enabled"));
+
+    let mut remove_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut remove_cmd);
+    remove_cmd
+        .arg("source")
+        .arg("remove")
+        .arg(&source_id)
+        .assert()
+        .success();
+
+    let mut list_cmd2 = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut list_cmd2);
+    list_cmd2
+        .arg("source")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no sources configured"));
+}
+
+#[test]
+fn source_health_check_and_browse_for_the_local_connector() {
+    let (mut cmd, home, media) = isolated_cmd_with_media_dir();
+    std::fs::write(media.path().join("clip.mp4"), b"fake video bytes").unwrap();
+    cmd.arg("library")
+        .arg("add")
+        .arg(media.path())
+        .assert()
+        .success();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut scan_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut scan_cmd);
+    scan_cmd.arg("library").arg("scan").assert().success();
+
+    let mut add_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut add_cmd);
+    let output = add_cmd
+        .args([
+            "--output",
+            "json",
+            "source",
+            "add",
+            LOCAL_FILESYSTEM_CONNECTOR_ID,
+            "Local Library",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let source_id = json["id"].as_str().unwrap().to_string();
+
+    let mut health_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut health_cmd);
+    health_cmd
+        .arg("source")
+        .arg("health-check")
+        .arg(&source_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Healthy"));
+
+    let mut browse_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut browse_cmd);
+    browse_cmd
+        .arg("source")
+        .arg("browse")
+        .arg(&source_id)
+        .args(["--query", "type:video"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Success"));
+}
+
+#[test]
+fn source_import_creates_a_searchable_item() {
+    let (mut cmd, home) = isolated_cmd();
+    let output = cmd
+        .args([
+            "--output",
+            "json",
+            "source",
+            "add",
+            FEED_CONNECTOR_ID,
+            "My Feed",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let source_id = json["id"].as_str().unwrap().to_string();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let remote_item_json = serde_json::json!({
+        "source_item_id": "guid-1",
+        "title": "Imported Story",
+        "description": null,
+        "canonical_url": "https://example.test/story",
+        "tags": ["fiction"],
+        "media_type": "story",
+        "thumbnail_url": null,
+    })
+    .to_string();
+
+    let mut import_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut import_cmd);
+    import_cmd
+        .arg("source")
+        .arg("import")
+        .arg(&source_id)
+        .args(["--json", &remote_item_json])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("imported as item"));
+
+    let mut search_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut search_cmd);
+    search_cmd
+        .args(["--output", "json", "search", "Imported"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"total\":1"));
+}
