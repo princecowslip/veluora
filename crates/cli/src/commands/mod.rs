@@ -7,7 +7,9 @@ pub mod search;
 
 use std::path::PathBuf;
 
-use application::{AppContext, AppError, DiagnosticsService, DiagnosticsSummary};
+use application::{
+    AppContext, AppError, DiagnosticsService, DiagnosticsSummary, PrivacyService, SettingsService,
+};
 use serde::Serialize;
 
 use crate::cli_args::OutputFormat;
@@ -139,6 +141,116 @@ pub fn db_restore(format: OutputFormat, quiet: bool, path: PathBuf) -> ExitCode 
                         println!(
                             "restored from {} — restart veloura to use the restored data",
                             path.display()
+                        );
+                    }
+                }
+            }
+            ExitCode::Success
+        }
+        Err(err) => report_and_exit(format, quiet, &err),
+    }
+}
+
+pub fn db_cache_status(format: OutputFormat, quiet: bool) -> ExitCode {
+    let ctx = match open_context(format, quiet) {
+        Ok(ctx) => ctx,
+        Err(code) => return code,
+    };
+    let breakdown = match PrivacyService::cache_breakdown(&ctx) {
+        Ok(b) => b,
+        Err(err) => return report_and_exit(format, quiet, &err),
+    };
+    let quota_bytes = match SettingsService::cache_quota_bytes(&ctx) {
+        Ok(q) => q,
+        Err(err) => return report_and_exit(format, quiet, &err),
+    };
+
+    match format {
+        OutputFormat::Json | OutputFormat::Jsonl => print_json(&serde_json::json!({
+            "schema_version": 1,
+            "breakdown": breakdown,
+            "quota_bytes": quota_bytes,
+        })),
+        OutputFormat::Text | OutputFormat::Table => {
+            if !quiet {
+                println!("cache status");
+                println!("  thumbnails: {} bytes", breakdown.thumbnails_bytes);
+                println!("  stories:    {} bytes", breakdown.stories_bytes);
+                println!("  other:      {} bytes", breakdown.other_bytes);
+                println!("  total:      {} bytes", breakdown.total_bytes);
+                match quota_bytes {
+                    Some(bytes) => println!("  quota:      {bytes} bytes"),
+                    None => println!("  quota:      unlimited"),
+                }
+            }
+        }
+    }
+    ExitCode::Success
+}
+
+pub fn db_cache_quota(
+    format: OutputFormat,
+    quiet: bool,
+    bytes: Option<u64>,
+    clear: bool,
+) -> ExitCode {
+    if bytes.is_some() && clear {
+        print_error_message(
+            format,
+            quiet,
+            "pass either a byte value or --clear, not both",
+        );
+        return ExitCode::InvalidArguments;
+    }
+    if bytes.is_none() && !clear {
+        print_error_message(
+            format,
+            quiet,
+            "pass a byte value, or --clear to remove the quota",
+        );
+        return ExitCode::InvalidArguments;
+    }
+    let ctx = match open_context(format, quiet) {
+        Ok(ctx) => ctx,
+        Err(code) => return code,
+    };
+    match SettingsService::set_cache_quota_bytes(&ctx, bytes) {
+        Ok(()) => {
+            match format {
+                OutputFormat::Json | OutputFormat::Jsonl => print_json(&serde_json::json!({
+                    "schema_version": 1,
+                    "ok": true,
+                    "quota_bytes": bytes,
+                })),
+                OutputFormat::Text | OutputFormat::Table => {
+                    if !quiet {
+                        match bytes {
+                            Some(b) => println!("cache quota set to {b} bytes"),
+                            None => println!("cache quota cleared (unlimited)"),
+                        }
+                    }
+                }
+            }
+            ExitCode::Success
+        }
+        Err(err) => report_and_exit(format, quiet, &err),
+    }
+}
+
+pub fn db_cache_enforce_quota(format: OutputFormat, quiet: bool) -> ExitCode {
+    let ctx = match open_context(format, quiet) {
+        Ok(ctx) => ctx,
+        Err(code) => return code,
+    };
+    match PrivacyService::enforce_cache_quota(&ctx) {
+        Ok(report) => {
+            match format {
+                OutputFormat::Json | OutputFormat::Jsonl => print_json(&report),
+                OutputFormat::Text | OutputFormat::Table => {
+                    if !quiet {
+                        println!(
+                            "evicted {} file(s), {} bytes — {} bytes remaining",
+                            report.evicted_files, report.evicted_bytes, report.remaining_bytes
                         );
                     }
                 }

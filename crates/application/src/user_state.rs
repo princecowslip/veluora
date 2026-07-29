@@ -15,7 +15,7 @@ impl UserStateService {
     pub fn get(ctx: &AppContext, item_id: ItemId) -> Result<UserState> {
         let conn = ctx.db.connection();
         let result = conn.query_row(
-            "SELECT favorite, rating, viewed, completed, progress_json, last_opened_at, queued_at, notes, private_tags
+            "SELECT favorite, rating, viewed, completed, progress_json, last_opened_at, queued_at, notes, private_tags, pinned
              FROM user_state WHERE item_id = ?1",
             params![item_id.to_string()],
             |row| row_to_user_state(row, item_id),
@@ -135,6 +135,20 @@ impl UserStateService {
             .map_err(database::DatabaseError::from)?;
         Self::get(ctx, item_id)
     }
+
+    /// Sets the cache-eviction-exemption flag — see
+    /// `domain::UserState::pinned`'s doc comment.
+    pub fn set_pinned(ctx: &AppContext, item_id: ItemId, pinned: bool) -> Result<UserState> {
+        ctx.db
+            .connection()
+            .execute(
+                "INSERT INTO user_state (item_id, pinned) VALUES (?1, ?2)
+                 ON CONFLICT(item_id) DO UPDATE SET pinned = excluded.pinned",
+                params![item_id.to_string(), pinned as i64],
+            )
+            .map_err(database::DatabaseError::from)?;
+        Self::get(ctx, item_id)
+    }
 }
 
 fn row_to_user_state(row: &Row, item_id: ItemId) -> rusqlite::Result<UserState> {
@@ -147,6 +161,7 @@ fn row_to_user_state(row: &Row, item_id: ItemId) -> rusqlite::Result<UserState> 
     let queued_at: Option<String> = row.get(6)?;
     let notes: Option<String> = row.get(7)?;
     let private_tags_json: Option<String> = row.get(8)?;
+    let pinned: bool = row.get(9)?;
 
     let progress: Option<Progress> = progress_json.and_then(|s| serde_json::from_str(&s).ok());
     let private_tags: Vec<String> = private_tags_json
@@ -164,6 +179,7 @@ fn row_to_user_state(row: &Row, item_id: ItemId) -> rusqlite::Result<UserState> 
         queued_at: queued_at.as_deref().and_then(from_rfc3339),
         notes,
         private_tags,
+        pinned,
     })
 }
 
@@ -289,6 +305,29 @@ mod tests {
         let item_id = insert_item(&ctx);
         let state = UserStateService::clear_history(&ctx, item_id).unwrap();
         assert!(!state.favorite);
+    }
+
+    #[test]
+    fn set_pinned_creates_then_toggles_the_row() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        let item_id = insert_item(&ctx);
+
+        let state = UserStateService::set_pinned(&ctx, item_id, true).unwrap();
+        assert!(state.pinned);
+
+        let state = UserStateService::set_pinned(&ctx, item_id, false).unwrap();
+        assert!(!state.pinned);
+
+        let count: i64 = ctx
+            .db
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM user_state WHERE item_id = ?1",
+                params![item_id.to_string()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "must upsert, not insert a second row");
     }
 
     #[test]

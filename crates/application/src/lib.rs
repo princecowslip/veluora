@@ -28,7 +28,7 @@ pub use error::{AppError, Result};
 pub use items::{DeletionReport, ItemDetail, ItemService, VariantSummary};
 pub use library::{LibraryRootService, LibraryRootSummary, LibraryService, LibraryStatus};
 pub use playback::{OpenTarget, PlaybackService, COMPLETION_THRESHOLD};
-pub use privacy::PrivacyService;
+pub use privacy::{CacheBreakdown, CacheEvictionReport, PrivacyService};
 pub use scanner::{RootScanResult, ScanReport, ScanService, SkippedFile};
 pub use search::{SearchHit, SearchResults, SearchService};
 pub use settings::{SettingsService, Theme};

@@ -107,6 +107,19 @@ impl SettingsService {
     pub fn set_last_data_cleared_at(ctx: &AppContext, timestamp: &str) -> Result<()> {
         Self::set_raw(ctx, "last_data_cleared_at", timestamp)
     }
+
+    /// The cache eviction ceiling in bytes — `None` means unlimited (the
+    /// default). See `PrivacyService::enforce_cache_quota`.
+    pub fn cache_quota_bytes(ctx: &AppContext) -> Result<Option<u64>> {
+        Ok(Self::get_raw(ctx, "cache_quota_bytes")?.and_then(|s| s.parse().ok()))
+    }
+
+    pub fn set_cache_quota_bytes(ctx: &AppContext, quota: Option<u64>) -> Result<()> {
+        match quota {
+            Some(bytes) => Self::set_raw(ctx, "cache_quota_bytes", &bytes.to_string()),
+            None => Self::clear_raw(ctx, "cache_quota_bytes"),
+        }
+    }
 }
 
 fn bool_str(b: bool) -> &'static str {

@@ -62,6 +62,11 @@ pub struct UserState {
     pub queued_at: Option<OffsetDateTime>,
     pub notes: Option<String>,
     pub private_tags: Vec<String>,
+    /// Exempts this item's generated cache artifacts (thumbnails) from
+    /// quota-driven eviction — see `docs/17-downloads-cache-storage.md`'s
+    /// "Never remove pinned" quota policy. Not a remote-download concept:
+    /// local library files are already the permanent originals.
+    pub pinned: bool,
 }
 
 impl UserState {
@@ -77,6 +82,7 @@ impl UserState {
             queued_at: None,
             notes: None,
             private_tags: Vec::new(),
+            pinned: false,
         }
     }
 }

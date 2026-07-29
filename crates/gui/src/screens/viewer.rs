@@ -23,6 +23,7 @@ pub struct State {
     pub comic_page_bytes: Option<Vec<u8>>,
     pub story_content: Option<String>,
     pub notes_input: String,
+    pub pinned: bool,
     pub delete_confirm_armed: bool,
     pub error: Option<String>,
 }
@@ -37,6 +38,7 @@ pub enum Message {
     SelectChapter(u32),
     NotesChanged(String),
     SaveNotes,
+    TogglePin,
     ClearHistory,
     ArmDelete,
     CancelDelete,
@@ -68,6 +70,9 @@ pub fn load(
         .unwrap_or_default();
 
     let user_state = UserStateService::get(ctx, item_id).ok();
+    if let Some(state_ref) = &user_state {
+        state.pinned = state_ref.pinned;
+    }
     if let Some(raw_notes) = user_state.and_then(|s| s.notes) {
         state.notes_input = match encryption_key {
             Some(key) => PrivacyService::decrypt_text(key, &raw_notes).unwrap_or(raw_notes),
@@ -240,6 +245,14 @@ pub fn update(
             let _ = UserStateService::set_notes(ctx, item_id, stored_value.as_deref());
             (Task::none(), None)
         }
+        Message::TogglePin => {
+            let new_pinned = !state.pinned;
+            match UserStateService::set_pinned(ctx, item_id, new_pinned) {
+                Ok(_) => state.pinned = new_pinned,
+                Err(e) => state.error = Some(e.to_string()),
+            }
+            (Task::none(), None)
+        }
         Message::ClearHistory => {
             let _ = UserStateService::clear_history(ctx, item_id);
             (Task::none(), None)
@@ -342,6 +355,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     content = content.push(
         row![
+            button(if state.pinned { "Unpin" } else { "Pin" }).on_press(Message::TogglePin),
             button("Clear history").on_press(Message::ClearHistory),
             delete_control(state),
         ]
@@ -422,6 +436,25 @@ mod tests {
         let raw = stored.notes.unwrap();
         assert!(raw.starts_with("enc:v1:"));
         assert_eq!(PrivacyService::decrypt_text(&key, &raw).unwrap(), "secret");
+    }
+
+    #[test]
+    fn toggle_pin_flips_state_and_persists() {
+        let (ctx, _dir) = test_ctx();
+        let item_id = insert_item(&ctx);
+        let mut state = State {
+            item_id: Some(item_id),
+            ..State::default()
+        };
+        assert!(!state.pinned);
+
+        let _ = update(&mut state, &ctx, None, Message::TogglePin);
+        assert!(state.pinned);
+        assert!(UserStateService::get(&ctx, item_id).unwrap().pinned);
+
+        let _ = update(&mut state, &ctx, None, Message::TogglePin);
+        assert!(!state.pinned);
+        assert!(!UserStateService::get(&ctx, item_id).unwrap().pinned);
     }
 
     #[test]

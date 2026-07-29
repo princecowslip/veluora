@@ -93,6 +93,21 @@ pub enum DbAction {
     /// replaces the file on disk, it doesn't affect an already-open
     /// process.
     Restore { path: PathBuf },
+    /// Cache size breakdown (thumbnails/stories/other) and the current
+    /// eviction quota, if one is set.
+    CacheStatus,
+    /// Sets or clears the cache eviction quota in bytes. Pass no value
+    /// (with `--clear`) to remove it — an unset quota means unlimited,
+    /// the default.
+    CacheQuota {
+        bytes: Option<u64>,
+        #[arg(long)]
+        clear: bool,
+    },
+    /// Evicts thumbnail files oldest-first (excluding any pinned item's)
+    /// until under the configured quota. A no-op if no quota is set or
+    /// the cache is already under it.
+    CacheEnforceQuota,
 }
 
 #[derive(Subcommand)]
@@ -202,5 +217,12 @@ pub enum ItemAction {
         /// Print only this chapter, by its index in the chapter map.
         #[arg(long)]
         chapter: Option<u32>,
+    },
+    /// Pins (or unpins) an item, exempting its cached thumbnails from
+    /// quota-driven eviction — see `db cache-enforce-quota`.
+    Pin {
+        item_id: String,
+        #[arg(long)]
+        unpin: bool,
     },
 }

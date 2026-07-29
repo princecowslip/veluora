@@ -267,6 +267,57 @@ mod tests {
     }
 
     #[test]
+    fn migration_0005_adds_pinned_column() {
+        let db = Database::open_in_memory().expect("open");
+        db.connection()
+            .execute(
+                "INSERT INTO media_items (id, media_type, title, rating_classification, discovered_at, updated_at)
+                 VALUES ('77777777-7777-7777-7777-777777777777', 'image', 'Pin Me', 'unrated', datetime('now'), datetime('now'))",
+                [],
+            )
+            .unwrap();
+        db.connection()
+            .execute(
+                "INSERT INTO user_state (item_id, pinned) VALUES ('77777777-7777-7777-7777-777777777777', 1)",
+                [],
+            )
+            .unwrap();
+        let pinned: bool = db
+            .connection()
+            .query_row(
+                "SELECT pinned FROM user_state WHERE item_id = '77777777-7777-7777-7777-777777777777'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(pinned);
+
+        // Default is unpinned when the column isn't specified.
+        db.connection()
+            .execute(
+                "INSERT INTO media_items (id, media_type, title, rating_classification, discovered_at, updated_at)
+                 VALUES ('88888888-8888-8888-8888-888888888888', 'image', 'Not Pinned', 'unrated', datetime('now'), datetime('now'))",
+                [],
+            )
+            .unwrap();
+        db.connection()
+            .execute(
+                "INSERT INTO user_state (item_id) VALUES ('88888888-8888-8888-8888-888888888888')",
+                [],
+            )
+            .unwrap();
+        let default_pinned: bool = db
+            .connection()
+            .query_row(
+                "SELECT pinned FROM user_state WHERE item_id = '88888888-8888-8888-8888-888888888888'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!default_pinned);
+    }
+
+    #[test]
     fn fts5_table_exists() {
         let db = Database::open_in_memory().expect("open");
         let count: i64 = db
