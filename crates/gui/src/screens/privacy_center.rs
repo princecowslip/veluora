@@ -151,8 +151,10 @@ mod tests {
     #[test]
     fn set_quota_parses_megabytes_and_persists_the_byte_value() {
         let (ctx, _dir) = test_ctx();
-        let mut state = State::default();
-        state.quota_input = "50".to_string();
+        let mut state = State {
+            quota_input: "50".to_string(),
+            ..State::default()
+        };
 
         let _ = update(&mut state, &ctx, Message::SetQuota);
 
@@ -166,8 +168,10 @@ mod tests {
     #[test]
     fn set_quota_with_non_numeric_input_reports_a_message_and_sets_nothing() {
         let (ctx, _dir) = test_ctx();
-        let mut state = State::default();
-        state.quota_input = "not a number".to_string();
+        let mut state = State {
+            quota_input: "not a number".to_string(),
+            ..State::default()
+        };
 
         let _ = update(&mut state, &ctx, Message::SetQuota);
 

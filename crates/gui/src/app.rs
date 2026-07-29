@@ -19,6 +19,7 @@ pub enum Screen {
     Library,
     Viewer,
     PrivacyCenter,
+    Sources,
     Settings,
 }
 
@@ -38,6 +39,7 @@ pub struct App {
     library: screens::library::State,
     viewer: screens::viewer::State,
     privacy_center: screens::privacy_center::State,
+    sources: screens::sources::State,
     settings: screens::settings::State,
     lock: screens::lock::State,
 }
@@ -51,6 +53,7 @@ pub enum Message {
     Library(screens::library::Message),
     Viewer(screens::viewer::Message),
     PrivacyCenter(screens::privacy_center::Message),
+    Sources(screens::sources::Message),
     Settings(screens::settings::Message),
     Lock(screens::lock::Message),
 }
@@ -86,6 +89,7 @@ impl App {
             library: screens::library::State::default(),
             viewer: screens::viewer::State::default(),
             privacy_center: screens::privacy_center::State::default(),
+            sources: screens::sources::State::default(),
             settings: screens::settings::State::default(),
             lock: screens::lock::State::default(),
         };
@@ -100,6 +104,7 @@ impl App {
             Screen::PrivacyCenter => {
                 screens::privacy_center::refresh(&mut self.privacy_center, &self.ctx)
             }
+            Screen::Sources => screens::sources::refresh(&mut self.sources, &self.ctx),
             Screen::Settings => screens::settings::refresh(&mut self.settings, &self.ctx),
             Screen::Onboarding | Screen::Viewer => {}
         }
@@ -196,6 +201,9 @@ impl App {
                 screens::privacy_center::update(&mut self.privacy_center, &self.ctx, msg)
                     .map(Message::PrivacyCenter)
             }
+            Message::Sources(msg) => {
+                screens::sources::update(&mut self.sources, &self.ctx, msg).map(Message::Sources)
+            }
             Message::Settings(msg) => {
                 let (task, effect) = screens::settings::update(&mut self.settings, &self.ctx, msg);
                 match effect {
@@ -230,6 +238,7 @@ impl App {
             Screen::PrivacyCenter => {
                 screens::privacy_center::view(&self.privacy_center).map(Message::PrivacyCenter)
             }
+            Screen::Sources => screens::sources::view(&self.sources).map(Message::Sources),
             Screen::Settings => screens::settings::view(&self.settings).map(Message::Settings),
         };
 
@@ -241,6 +250,7 @@ impl App {
             button("Home").on_press(Message::Navigate(Screen::Home)),
             button("Library").on_press(Message::Navigate(Screen::Library)),
             button("Privacy Center").on_press(Message::Navigate(Screen::PrivacyCenter)),
+            button("Sources").on_press(Message::Navigate(Screen::Sources)),
             button("Settings").on_press(Message::Navigate(Screen::Settings)),
         ]
         .spacing(12)

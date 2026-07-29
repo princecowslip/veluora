@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 application.workspace = true
+connectors.workspace = true
 domain.workspace = true
 media.workspace = true
 iced.workspace = true
