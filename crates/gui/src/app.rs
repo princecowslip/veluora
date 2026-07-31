@@ -20,6 +20,7 @@ pub enum Screen {
     Viewer,
     PrivacyCenter,
     Sources,
+    Discover,
     Settings,
 }
 
@@ -40,6 +41,7 @@ pub struct App {
     viewer: screens::viewer::State,
     privacy_center: screens::privacy_center::State,
     sources: screens::sources::State,
+    discover: screens::discover::State,
     settings: screens::settings::State,
     lock: screens::lock::State,
 }
@@ -54,6 +56,7 @@ pub enum Message {
     Viewer(screens::viewer::Message),
     PrivacyCenter(screens::privacy_center::Message),
     Sources(screens::sources::Message),
+    Discover(screens::discover::Message),
     Settings(screens::settings::Message),
     Lock(screens::lock::Message),
 }
@@ -90,6 +93,7 @@ impl App {
             viewer: screens::viewer::State::default(),
             privacy_center: screens::privacy_center::State::default(),
             sources: screens::sources::State::default(),
+            discover: screens::discover::State::default(),
             settings: screens::settings::State::default(),
             lock: screens::lock::State::default(),
         };
@@ -106,6 +110,7 @@ impl App {
             }
             Screen::Sources => screens::sources::refresh(&mut self.sources, &self.ctx),
             Screen::Settings => screens::settings::refresh(&mut self.settings, &self.ctx),
+            Screen::Discover => screens::discover::refresh(&mut self.discover, &self.ctx),
             Screen::Onboarding | Screen::Viewer => {}
         }
     }
@@ -204,6 +209,9 @@ impl App {
             Message::Sources(msg) => {
                 screens::sources::update(&mut self.sources, &self.ctx, msg).map(Message::Sources)
             }
+            Message::Discover(msg) => {
+                screens::discover::update(&mut self.discover, &self.ctx, msg).map(Message::Discover)
+            }
             Message::Settings(msg) => {
                 let (task, effect) = screens::settings::update(&mut self.settings, &self.ctx, msg);
                 match effect {
@@ -239,6 +247,7 @@ impl App {
                 screens::privacy_center::view(&self.privacy_center).map(Message::PrivacyCenter)
             }
             Screen::Sources => screens::sources::view(&self.sources).map(Message::Sources),
+            Screen::Discover => screens::discover::view(&self.discover).map(Message::Discover),
             Screen::Settings => screens::settings::view(&self.settings).map(Message::Settings),
         };
 
@@ -251,6 +260,7 @@ impl App {
             button("Library").on_press(Message::Navigate(Screen::Library)),
             button("Privacy Center").on_press(Message::Navigate(Screen::PrivacyCenter)),
             button("Sources").on_press(Message::Navigate(Screen::Sources)),
+            button("Discover").on_press(Message::Navigate(Screen::Discover)),
             button("Settings").on_press(Message::Navigate(Screen::Settings)),
         ]
         .spacing(12)

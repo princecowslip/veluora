@@ -32,6 +32,7 @@ add_executable(veloura-tui
   src/views/privacy_view.cpp
   src/views/diagnostics_view.cpp
   src/views/sources_view.cpp
+  src/views/discover_view.cpp
 )
 
 target_compile_options(veloura-tui PRIVATE -Wall -Wextra)

@@ -46,6 +46,11 @@ fn main() {
             limit,
             offset,
         } => commands::search::run(format, quiet, query, limit, offset),
+        Command::Discover {
+            query,
+            source_ids,
+            limit_per_source,
+        } => commands::discover::run(format, quiet, query, source_ids, limit_per_source),
         Command::Favorite { action } => match action {
             FavoriteAction::Add { item_id } => commands::favorite::add(format, quiet, item_id),
             FavoriteAction::Remove { item_id } => {

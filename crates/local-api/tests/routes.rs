@@ -863,3 +863,108 @@ async fn malformed_search_query_is_a_bad_request() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body["error"].as_str().unwrap().contains("bogus"));
 }
+
+#[tokio::test]
+async fn discover_combines_local_and_connector_hits_via_http() {
+    let (state, token, media_dir) = test_state().await;
+    std::fs::write(media_dir.path().join("clip.mp4"), b"fake video bytes").unwrap();
+    call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/library/roots",
+        Some(json!({ "path": media_dir.path().to_string_lossy() })),
+    )
+    .await;
+    call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/library/scan",
+        Some(json!({})),
+    )
+    .await;
+
+    call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/sources",
+        Some(json!({
+            "connector_id": FEED_CONNECTOR_ID,
+            "display_name": "My Feed",
+            "configuration_json": { "url": "http://127.0.0.1:1/does-not-exist.xml" },
+        })),
+    )
+    .await;
+
+    let (status, report) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/discover",
+        Some(json!({ "query": "type:video" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The local scanned item is a hit; the unreachable feed source
+    // contributes none but is still reported, not silently dropped.
+    let hits = report["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0]["local_item_id"].is_string());
+
+    let sources = report["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 2);
+    assert!(sources
+        .iter()
+        .any(|s| s["source_display_name"] == "My Feed" && s["status"]["status"] != "success"));
+}
+
+#[tokio::test]
+async fn discover_with_a_malformed_query_is_a_bad_request() {
+    let (state, token, _media_dir) = test_state().await;
+    let (status, body) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/discover",
+        Some(json!({ "query": "bogus:value" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body["error"].as_str().unwrap().contains("bogus"));
+}
+
+#[tokio::test]
+async fn discover_with_an_invalid_source_id_is_a_bad_request() {
+    let (state, token, _media_dir) = test_state().await;
+    let (status, _) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/discover",
+        Some(json!({ "query": "hello", "source_ids": ["not-a-uuid"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn unauthenticated_requests_to_discover_are_rejected() {
+    let (state, _token, _media_dir) = test_state().await;
+    let response = build_router(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/discover")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({ "query": "" })).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}

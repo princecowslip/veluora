@@ -13,10 +13,10 @@ namespace veloura {
 // RSS/Atom feed — the only two connectors that exist), enable/disable,
 // remove, health-check, browse, and import a browsed item into the
 // library — via `/api/v1/sources*`. The TUI counterpart of the GUI
-// Sources screen and `veloura source ...`. There is no unified
-// cross-source "Discover" backed by a single endpoint yet (browsing a
-// source is a separate, explicit per-source action), so that stays out
-// of scope here — see the tui-sources-view plan for the reasoning.
+// Sources screen and `veloura source ...`. Browsing here is still
+// per-source, one at a time; for a unified cross-source query see
+// `DiscoverView` (`discover_view.h`, F8), which is backed by
+// `POST /api/v1/discover`.
 class SourcesView : public View {
  public:
   const char* title() const override { return "Sources"; }
