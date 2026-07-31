@@ -152,7 +152,11 @@ impl SourceService {
         Ok(())
     }
 
-    pub async fn health_check(ctx: &AppContext, id: SourceId) -> Result<HealthState> {
+    /// Resolves a source and its backing connector together — the same
+    /// lookup `health_check`/`browse` already do inline, factored out
+    /// so callers like `DownloadService` don't re-wire the connector
+    /// registry themselves.
+    pub fn connector_for(ctx: &AppContext, id: SourceId) -> Result<(Source, Arc<dyn Connector>)> {
         let source = Self::require(ctx, id)?;
         let connector = Self::registry().get(source.connector_id).ok_or_else(|| {
             AppError::InvalidPath(format!(
@@ -160,6 +164,11 @@ impl SourceService {
                 source.connector_id
             ))
         })?;
+        Ok((source, connector))
+    }
+
+    pub async fn health_check(ctx: &AppContext, id: SourceId) -> Result<HealthState> {
+        let (source, connector) = Self::connector_for(ctx, id)?;
 
         let health = match connector.health_check(&source).await {
             ConnectorResult::Success(state) => state,
@@ -291,12 +300,22 @@ impl SourceService {
         source_id: SourceId,
         remote_item: RemoteItem,
     ) -> Result<ItemId> {
-        let source = Self::require(ctx, source_id)?;
+        let (source, connector) = Self::connector_for(ctx, source_id)?;
         if is_local(&source) {
             return Err(AppError::InvalidPath(
                 "cannot import from the local library — its items are already local".to_string(),
             ));
         }
+        let downloads_capable = connector.capabilities().downloads;
+        let fetch_url = remote_item
+            .download_url
+            .clone()
+            .or_else(|| remote_item.canonical_url.clone());
+        let download_permitted = downloads_capable && remote_item.download_url.is_some();
+        let mime_type = remote_item
+            .download_mime_type
+            .clone()
+            .unwrap_or_else(|| "application/octet-stream".to_string());
         let item_id = ItemId::new();
         let variant_id = VariantId::new();
         let source_ref_id = domain::SourceRefId::new();
@@ -336,13 +355,16 @@ impl SourceService {
         .map_err(database::DatabaseError::from)?;
 
         conn.execute(
-            "INSERT INTO media_variants (id, item_id, source_ref_id, remote_url, mime_type, format)
-             VALUES (?1, ?2, ?3, ?4, 'application/octet-stream', 'remote')",
+            "INSERT INTO media_variants (id, item_id, source_ref_id, remote_url, mime_type, format, file_size, download_permitted)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'remote', ?6, ?7)",
             params![
                 variant_id.to_string(),
                 item_id.to_string(),
                 source_ref_id.to_string(),
-                remote_item.canonical_url,
+                fetch_url,
+                mime_type,
+                remote_item.download_size_bytes.map(|n| n as i64),
+                download_permitted as i64,
             ],
         )
         .map_err(database::DatabaseError::from)?;
@@ -463,6 +485,9 @@ pub(crate) fn search_hit_to_remote_item(hit: crate::search::SearchHit) -> Remote
         tags: Vec::new(),
         media_type: hit.media_type,
         thumbnail_url: None,
+        download_url: None,
+        download_mime_type: None,
+        download_size_bytes: None,
     }
 }
 
@@ -682,6 +707,9 @@ mod tests {
             tags: vec!["fiction".to_string()],
             media_type: domain::MediaType::Story,
             thumbnail_url: None,
+            download_url: None,
+            download_mime_type: None,
+            download_size_bytes: None,
         };
 
         let item_id = SourceService::import_remote_item(&ctx, source.id, remote_item).unwrap();
@@ -703,6 +731,53 @@ mod tests {
     }
 
     #[test]
+    fn import_remote_item_marks_the_variant_download_permitted_when_the_connector_and_entry_both_support_it(
+    ) {
+        let ctx = AppContext::open_in_memory().unwrap();
+        let source = SourceService::add(
+            &ctx,
+            FEED_CONNECTOR_ID,
+            "My Feed".to_string(),
+            serde_json::json!({ "url": "https://example.test/feed.xml" }),
+        )
+        .unwrap();
+
+        let remote_item = domain::RemoteItem {
+            source_item_id: "guid-1".to_string(),
+            title: "Episode One".to_string(),
+            description: None,
+            canonical_url: Some("https://example.test/episode-one".to_string()),
+            tags: Vec::new(),
+            media_type: domain::MediaType::Story,
+            thumbnail_url: None,
+            download_url: Some("https://example.test/files/episode-one.mp3".to_string()),
+            download_mime_type: Some("audio/mpeg".to_string()),
+            download_size_bytes: Some(654321),
+        };
+
+        let item_id = SourceService::import_remote_item(&ctx, source.id, remote_item).unwrap();
+
+        let (remote_url, mime_type, file_size, download_permitted): (
+            String,
+            String,
+            Option<i64>,
+            i64,
+        ) = ctx
+            .db
+            .connection()
+            .query_row(
+                "SELECT remote_url, mime_type, file_size, download_permitted FROM media_variants WHERE item_id = ?1",
+                params![item_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(remote_url, "https://example.test/files/episode-one.mp3");
+        assert_eq!(mime_type, "audio/mpeg");
+        assert_eq!(file_size, Some(654321));
+        assert_eq!(download_permitted, 1);
+    }
+
+    #[test]
     fn import_remote_item_on_the_local_connector_source_is_rejected() {
         let ctx = AppContext::open_in_memory().unwrap();
         let source = SourceService::add(
@@ -721,6 +796,9 @@ mod tests {
             tags: Vec::new(),
             media_type: domain::MediaType::Other,
             thumbnail_url: None,
+            download_url: None,
+            download_mime_type: None,
+            download_size_bytes: None,
         };
 
         let err = SourceService::import_remote_item(&ctx, source.id, remote_item).unwrap_err();

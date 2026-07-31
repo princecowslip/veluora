@@ -7,6 +7,7 @@ pub mod comics;
 pub mod context;
 pub mod diagnostics;
 pub mod discover;
+pub mod download;
 pub mod error;
 pub mod items;
 pub mod library;
@@ -29,6 +30,7 @@ pub use diagnostics::{DiagnosticsService, DiagnosticsSummary, SupportBundle};
 pub use discover::{
     DiscoverHit, DiscoverReport, DiscoverService, DiscoverSourceStatus, LOCAL_LIBRARY_SOURCE_ID,
 };
+pub use download::{DownloadService, DownloadSummary, EligibilityReport};
 pub use error::{AppError, Result};
 pub use items::{DeletionReport, ItemDetail, ItemService, VariantSummary};
 pub use library::{LibraryRootService, LibraryRootSummary, LibraryService, LibraryStatus};

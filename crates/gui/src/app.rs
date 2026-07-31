@@ -21,6 +21,7 @@ pub enum Screen {
     PrivacyCenter,
     Sources,
     Discover,
+    Downloads,
     Settings,
 }
 
@@ -42,6 +43,7 @@ pub struct App {
     privacy_center: screens::privacy_center::State,
     sources: screens::sources::State,
     discover: screens::discover::State,
+    downloads: screens::downloads::State,
     settings: screens::settings::State,
     lock: screens::lock::State,
 }
@@ -57,6 +59,7 @@ pub enum Message {
     PrivacyCenter(screens::privacy_center::Message),
     Sources(screens::sources::Message),
     Discover(screens::discover::Message),
+    Downloads(screens::downloads::Message),
     Settings(screens::settings::Message),
     Lock(screens::lock::Message),
 }
@@ -94,6 +97,7 @@ impl App {
             privacy_center: screens::privacy_center::State::default(),
             sources: screens::sources::State::default(),
             discover: screens::discover::State::default(),
+            downloads: screens::downloads::State::default(),
             settings: screens::settings::State::default(),
             lock: screens::lock::State::default(),
         };
@@ -111,6 +115,7 @@ impl App {
             Screen::Sources => screens::sources::refresh(&mut self.sources, &self.ctx),
             Screen::Settings => screens::settings::refresh(&mut self.settings, &self.ctx),
             Screen::Discover => screens::discover::refresh(&mut self.discover, &self.ctx),
+            Screen::Downloads => screens::downloads::refresh(&mut self.downloads, &self.ctx),
             Screen::Onboarding | Screen::Viewer => {}
         }
     }
@@ -139,7 +144,20 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        keyboard::on_key_press(panic_shortcut)
+        let mut subscriptions = vec![keyboard::on_key_press(panic_shortcut)];
+        // Live progress: only while the Downloads screen is showing
+        // *and* something is actually in flight — there's no
+        // server-push event stream for downloads (`local-api` has no
+        // SSE/WebSocket support), so this is a polling fallback.
+        if self.screen == Screen::Downloads
+            && screens::downloads::has_in_flight_downloads(&self.downloads)
+        {
+            subscriptions.push(
+                iced::time::every(std::time::Duration::from_secs(1))
+                    .map(|_| Message::Downloads(screens::downloads::Message::Refresh)),
+            );
+        }
+        Subscription::batch(subscriptions)
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -212,6 +230,10 @@ impl App {
             Message::Discover(msg) => {
                 screens::discover::update(&mut self.discover, &self.ctx, msg).map(Message::Discover)
             }
+            Message::Downloads(msg) => {
+                screens::downloads::update(&mut self.downloads, &self.ctx, msg)
+                    .map(Message::Downloads)
+            }
             Message::Settings(msg) => {
                 let (task, effect) = screens::settings::update(&mut self.settings, &self.ctx, msg);
                 match effect {
@@ -248,6 +270,7 @@ impl App {
             }
             Screen::Sources => screens::sources::view(&self.sources).map(Message::Sources),
             Screen::Discover => screens::discover::view(&self.discover).map(Message::Discover),
+            Screen::Downloads => screens::downloads::view(&self.downloads).map(Message::Downloads),
             Screen::Settings => screens::settings::view(&self.settings).map(Message::Settings),
         };
 
@@ -261,6 +284,7 @@ impl App {
             button("Privacy Center").on_press(Message::Navigate(Screen::PrivacyCenter)),
             button("Sources").on_press(Message::Navigate(Screen::Sources)),
             button("Discover").on_press(Message::Navigate(Screen::Discover)),
+            button("Downloads").on_press(Message::Navigate(Screen::Downloads)),
             button("Settings").on_press(Message::Navigate(Screen::Settings)),
         ]
         .spacing(12)

@@ -12,7 +12,7 @@ void CacheView::refresh(ApiClient& api) {
 void CacheView::render(ncplane* plane, unsigned rows, unsigned cols) {
   (void)cols;
   int y = 0;
-  print_plain(plane, y++, 0, "Downloads / Cache");
+  print_plain(plane, y++, 0, "Cache");
   ++y;
 
   if (editing_quota_) {

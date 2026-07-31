@@ -41,6 +41,7 @@ pub fn build_router(state: ApiState) -> Router {
         .merge(routes::home::router())
         .merge(routes::privacy::router())
         .merge(routes::sources::router())
+        .merge(routes::downloads::router())
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     Router::new()
@@ -91,6 +92,8 @@ pub(crate) fn error_response(err: &AppError) -> Response {
     let status = match err {
         AppError::NotFound(_) => StatusCode::NOT_FOUND,
         AppError::InvalidQuery(_) | AppError::InvalidPath(_) => StatusCode::BAD_REQUEST,
+        AppError::UnsupportedCapability(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        AppError::Network(_) => StatusCode::BAD_GATEWAY,
         AppError::Database(_) | AppError::Io(_) | AppError::NoDataDirectory => {
             StatusCode::INTERNAL_SERVER_ERROR
         }

@@ -4,8 +4,8 @@ mod exit_code;
 
 use clap::Parser;
 use cli_args::{
-    Cli, CollectionAction, Command, DbAction, DiagnosticsAction, FavoriteAction, ItemAction,
-    LibraryAction, PluginAction, SourceAction,
+    Cli, CollectionAction, Command, DbAction, DiagnosticsAction, DownloadAction, FavoriteAction,
+    ItemAction, LibraryAction, PluginAction, SourceAction,
 };
 
 fn main() {
@@ -117,6 +117,37 @@ fn main() {
                 source_id,
                 remote_item_json,
             } => commands::source::import(format, quiet, source_id, remote_item_json),
+        },
+        Command::Download { action } => match action {
+            DownloadAction::Add {
+                item_id,
+                variant_id,
+            } => commands::download::add(format, quiet, item_id, variant_id),
+            DownloadAction::List { item } => commands::download::list(format, quiet, item),
+            DownloadAction::Pause { download_id } => {
+                commands::download::pause(format, quiet, download_id)
+            }
+            DownloadAction::Resume { download_id } => {
+                commands::download::resume(format, quiet, download_id)
+            }
+            DownloadAction::Cancel { download_id } => {
+                commands::download::cancel(format, quiet, download_id)
+            }
+            DownloadAction::Remove {
+                download_id,
+                delete_file,
+            } => commands::download::remove(format, quiet, download_id, delete_file),
+            DownloadAction::Pin { download_id, unpin } => {
+                commands::download::pin(format, quiet, download_id, unpin)
+            }
+            DownloadAction::Eligibility {
+                item_id,
+                variant_id,
+            } => commands::download::eligibility(format, quiet, item_id, variant_id),
+            DownloadAction::Quota { bytes, clear } => {
+                commands::download::quota(format, quiet, bytes, clear)
+            }
+            DownloadAction::EnforceQuota => commands::download::enforce_quota(format, quiet),
         },
         Command::Plugin { action } => match action {
             PluginAction::Validate { manifest_path } => {

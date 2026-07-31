@@ -83,6 +83,17 @@ pub struct RemoteItem {
     pub tags: Vec<String>,
     pub media_type: MediaType,
     pub thumbnail_url: Option<String>,
+    /// The direct, fetchable URL for this item's primary downloadable
+    /// variant (e.g. an RSS `<enclosure>`/Atom `rel="enclosure"` link)
+    /// — distinct from `canonical_url` (the item's *webpage*). `None`
+    /// when this specific entry has nothing download-eligible, even if
+    /// the connector as a whole declares `capabilities().downloads`.
+    #[serde(default)]
+    pub download_url: Option<String>,
+    #[serde(default)]
+    pub download_mime_type: Option<String>,
+    #[serde(default)]
+    pub download_size_bytes: Option<u64>,
 }
 
 #[cfg(test)]

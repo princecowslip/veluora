@@ -968,3 +968,184 @@ async fn unauthenticated_requests_to_discover_are_rejected() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
+
+async fn spawn_fixture_download_server(body: Vec<u8>) -> std::net::SocketAddr {
+    let app =
+        axum::Router::new().route("/file.bin", axum::routing::get(move || async move { body }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    addr
+}
+
+#[tokio::test]
+async fn download_lifecycle_via_http() {
+    let (state, token, _media_dir) = test_state().await;
+    let content = vec![7u8; 4096];
+    let addr = spawn_fixture_download_server(content.clone()).await;
+
+    let (_, source) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/sources",
+        Some(json!({
+            "connector_id": FEED_CONNECTOR_ID,
+            "display_name": "My Feed",
+            "configuration_json": { "url": "https://example.test/feed.xml" },
+        })),
+    )
+    .await;
+    let source_id = source["id"].as_str().unwrap().to_string();
+
+    let (status, imported) = call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/sources/{source_id}/import"),
+        Some(json!({
+            "source_item_id": "guid-1",
+            "title": "Downloadable Episode",
+            "description": null,
+            "canonical_url": "https://example.test/episode",
+            "tags": [],
+            "media_type": "video",
+            "thumbnail_url": null,
+            "download_url": format!("http://{addr}/file.bin"),
+            "download_mime_type": "video/mp4",
+            "download_size_bytes": content.len(),
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let item_id = imported["item_id"].as_str().unwrap().to_string();
+
+    let (_, item) = call(
+        &state,
+        &token,
+        "GET",
+        &format!("/api/v1/items/{item_id}"),
+        None,
+    )
+    .await;
+    let variant_id = item["variants"][0]["id"].as_str().unwrap().to_string();
+
+    let (status, eligibility) = call(
+        &state,
+        &token,
+        "GET",
+        &format!("/api/v1/downloads/eligibility?item_id={item_id}&variant_id={variant_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(eligibility["eligible"], true);
+
+    let (status, download) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/downloads",
+        Some(json!({ "item_id": item_id, "variant_id": variant_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let download_id = download["id"].as_str().unwrap().to_string();
+
+    let mut final_download = json!(null);
+    for _ in 0..50 {
+        let (_, found) = call(
+            &state,
+            &token,
+            "GET",
+            &format!("/api/v1/downloads/{download_id}"),
+            None,
+        )
+        .await;
+        if found["state"] == "completed" || found["state"] == "failed" {
+            final_download = found;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(final_download["state"], "completed", "{final_download}");
+
+    let (status, list) = call(&state, &token, "GET", "/api/v1/downloads", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list.as_array().unwrap().len(), 1);
+
+    let (status, _) = call(
+        &state,
+        &token,
+        "DELETE",
+        &format!("/api/v1/downloads/{download_id}?delete_file=true"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = call(
+        &state,
+        &token,
+        "GET",
+        &format!("/api/v1/items/{item_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the library item must survive deleting its download"
+    );
+}
+
+#[tokio::test]
+async fn downloads_eligibility_reports_ineligible_for_an_unknown_variant() {
+    let (state, token, _media_dir) = test_state().await;
+    let (_, source) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/sources",
+        Some(json!({
+            "connector_id": FEED_CONNECTOR_ID,
+            "display_name": "My Feed",
+            "configuration_json": { "url": "https://example.test/feed.xml" },
+        })),
+    )
+    .await;
+    let _ = source;
+
+    let unknown_item = uuid::Uuid::new_v4();
+    let unknown_variant = uuid::Uuid::new_v4();
+    let (status, eligibility) = call(
+        &state,
+        &token,
+        "GET",
+        &format!(
+            "/api/v1/downloads/eligibility?item_id={unknown_item}&variant_id={unknown_variant}"
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(eligibility["eligible"], false);
+}
+
+#[tokio::test]
+async fn unauthenticated_requests_to_download_routes_are_rejected() {
+    let (state, _token, _media_dir) = test_state().await;
+    let response = build_router(state)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/downloads")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}

@@ -100,6 +100,11 @@ pub enum Command {
         #[command(subcommand)]
         action: SourceAction,
     },
+    /// Downloads and offline use (Workstream 11).
+    Download {
+        #[command(subcommand)]
+        action: DownloadAction,
+    },
     /// Plugin manifest validation and local registry governance
     /// (`docs/18-plugin-system.md`). Infrastructure only — there is no
     /// real connector-backed plugin to install yet (Milestone F,
@@ -318,6 +323,72 @@ pub enum SourceAction {
         #[arg(long = "json")]
         remote_item_json: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum DownloadAction {
+    /// Queues then runs a download to completion (or to a paused/failed
+    /// outcome), blocking this process the whole time — there is no
+    /// background daemon, so this is the honest behavior for a
+    /// one-shot CLI. Still genuinely pausable: a *second*,
+    /// independent `download pause` invocation, run from another
+    /// shell, stops this one within one network round trip, since
+    /// pause/resume are coordinated through the shared database file,
+    /// not an in-memory flag.
+    Add {
+        item_id: String,
+        variant_id: String,
+    },
+    List {
+        /// Restrict to one item's downloads.
+        #[arg(long)]
+        item: Option<String>,
+    },
+    /// Requests a pause — safe to run from a different process than
+    /// the one running `add`/`resume`.
+    Pause {
+        download_id: String,
+    },
+    /// Resumes a paused/failed download from wherever it left off,
+    /// blocking until it reaches a terminal/paused state — same
+    /// blocking behavior as `add`.
+    Resume {
+        download_id: String,
+    },
+    Cancel {
+        download_id: String,
+    },
+    /// Removes the download queue entry. The permanent file (and the
+    /// library item's reference to it) is preserved unless
+    /// `--delete-file` is passed.
+    Remove {
+        download_id: String,
+        #[arg(long = "delete-file")]
+        delete_file: bool,
+    },
+    Pin {
+        download_id: String,
+        #[arg(long)]
+        unpin: bool,
+    },
+    /// Checks whether an item/variant would be accepted by `download
+    /// add`, without queuing anything.
+    Eligibility {
+        item_id: String,
+        variant_id: String,
+    },
+    /// Sets or clears the permanent-download eviction quota in bytes.
+    /// Pass no value (with `--clear`) to remove it — an unset quota
+    /// means unlimited, the default.
+    Quota {
+        bytes: Option<u64>,
+        #[arg(long)]
+        clear: bool,
+    },
+    /// Evicts completed, non-pinned download files oldest-first until
+    /// under the configured quota. A no-op if no quota is set or
+    /// already under it.
+    EnforceQuota,
 }
 
 #[derive(Subcommand)]

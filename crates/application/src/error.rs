@@ -14,6 +14,10 @@ pub enum AppError {
     InvalidPath(String),
     #[error("invalid query: {0}")]
     InvalidQuery(String),
+    #[error("unsupported capability: {0}")]
+    UnsupportedCapability(String),
+    #[error("network error: {0}")]
+    Network(String),
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;
