@@ -180,6 +180,9 @@ mod tests {
             tags: Vec::new(),
             media_type: domain::MediaType::Story,
             thumbnail_url: None,
+            download_url: None,
+            download_mime_type: None,
+            download_size_bytes: None,
         }
     }
 

@@ -222,6 +222,9 @@ mod tests {
             tags: Vec::new(),
             media_type: MediaType::Video,
             thumbnail_url: None,
+            download_url: None,
+            download_mime_type: None,
+            download_size_bytes: None,
         };
         let item_id =
             crate::source::SourceService::import_remote_item(&ctx, source.id, remote_item).unwrap();

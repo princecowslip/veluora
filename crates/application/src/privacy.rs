@@ -50,6 +50,54 @@ pub struct CacheEvictionReport {
     pub remaining_bytes: u64,
 }
 
+/// A file eligible for LRU-style eviction under a byte quota — the
+/// common shape [`PrivacyService::enforce_cache_quota`] and
+/// [`PrivacyService::enforce_download_quota`] both reduce to, so the
+/// actual "sort by recency, skip protected, evict oldest-first until
+/// under quota" loop is written once.
+struct EvictionCandidate {
+    path: PathBuf,
+    recency: std::time::SystemTime,
+    size: u64,
+    protected: bool,
+}
+
+fn no_op_report(remaining_bytes: u64) -> CacheEvictionReport {
+    CacheEvictionReport {
+        evicted_files: 0,
+        evicted_bytes: 0,
+        remaining_bytes,
+    }
+}
+
+fn evict_until_under_quota(
+    mut remaining: u64,
+    quota: u64,
+    mut candidates: Vec<EvictionCandidate>,
+) -> CacheEvictionReport {
+    candidates.retain(|c| !c.protected);
+    candidates.sort_by_key(|c| c.recency);
+
+    let mut evicted_files = 0u64;
+    let mut evicted_bytes = 0u64;
+    for candidate in candidates {
+        if remaining <= quota {
+            break;
+        }
+        if fs::remove_file(&candidate.path).is_ok() {
+            remaining = remaining.saturating_sub(candidate.size);
+            evicted_files += 1;
+            evicted_bytes += candidate.size;
+        }
+    }
+
+    CacheEvictionReport {
+        evicted_files,
+        evicted_bytes,
+        remaining_bytes: remaining,
+    }
+}
+
 pub struct PrivacyService;
 
 impl PrivacyService {
@@ -161,20 +209,12 @@ impl PrivacyService {
     /// run automatically: matches how backup/restore and encryption stay
     /// explicit user actions elsewhere in this service.
     pub fn enforce_cache_quota(ctx: &AppContext) -> Result<CacheEvictionReport> {
-        let mut remaining = Self::cache_size_bytes(ctx)?;
+        let remaining = Self::cache_size_bytes(ctx)?;
         let Some(quota) = SettingsService::cache_quota_bytes(ctx)? else {
-            return Ok(CacheEvictionReport {
-                evicted_files: 0,
-                evicted_bytes: 0,
-                remaining_bytes: remaining,
-            });
+            return Ok(no_op_report(remaining));
         };
         if remaining <= quota {
-            return Ok(CacheEvictionReport {
-                evicted_files: 0,
-                evicted_bytes: 0,
-                remaining_bytes: remaining,
-            });
+            return Ok(no_op_report(remaining));
         }
 
         let pinned_variant_ids: HashSet<String> = {
@@ -197,44 +237,151 @@ impl PrivacyService {
         };
 
         let thumbnails_dir = ctx.data_dir.join("cache").join("thumbnails");
-        let mut evictable: Vec<(PathBuf, std::time::SystemTime, u64)> =
-            walkdir::WalkDir::new(&thumbnails_dir)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().is_file())
-                .filter_map(|entry| {
-                    let variant_id = entry.path().file_stem()?.to_str()?.to_string();
-                    if pinned_variant_ids.contains(&variant_id) {
-                        return None;
-                    }
-                    let metadata = entry.metadata().ok()?;
-                    Some((
-                        entry.path().to_path_buf(),
-                        metadata.modified().ok()?,
-                        metadata.len(),
-                    ))
+        let candidates: Vec<EvictionCandidate> = walkdir::WalkDir::new(&thumbnails_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .filter_map(|entry| {
+                let variant_id = entry.path().file_stem()?.to_str()?.to_string();
+                let metadata = entry.metadata().ok()?;
+                Some(EvictionCandidate {
+                    path: entry.path().to_path_buf(),
+                    recency: metadata.modified().ok()?,
+                    size: metadata.len(),
+                    protected: pinned_variant_ids.contains(&variant_id),
                 })
-                .collect();
-        evictable.sort_by_key(|(_, mtime, _)| *mtime);
+            })
+            .collect();
 
-        let mut evicted_files = 0u64;
-        let mut evicted_bytes = 0u64;
-        for (path, _mtime, size) in evictable {
-            if remaining <= quota {
-                break;
+        Ok(evict_until_under_quota(remaining, quota, candidates))
+    }
+
+    /// Sums the file sizes of every `Completed` download's permanent
+    /// file — the download-directory counterpart of
+    /// [`Self::cache_size_bytes`].
+    pub fn download_directory_size_bytes(ctx: &AppContext) -> Result<u64> {
+        let conn = ctx.db.connection();
+        let paths: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT destination FROM downloads WHERE state = 'completed'")
+                .map_err(database::DatabaseError::from)?;
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(database::DatabaseError::from)?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row.map_err(database::DatabaseError::from)?);
             }
-            if fs::remove_file(&path).is_ok() {
-                remaining = remaining.saturating_sub(size);
-                evicted_files += 1;
-                evicted_bytes += size;
+            out
+        };
+        let mut total = 0u64;
+        for path in paths {
+            total += fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        }
+        Ok(total)
+    }
+
+    /// If a quota is set (via [`SettingsService::download_quota_bytes`])
+    /// and completed downloads exceed it, deletes permanent download
+    /// files oldest-`completed_at`-first — excluding any download
+    /// marked `pinned` on its own row *or* whose owning item has
+    /// `user_state.pinned` set (so pinning an item anywhere also
+    /// protects its downloads) — until under quota. Marks each evicted
+    /// row `Evicted` and clears its variant's `local_path`/`file_size`/
+    /// `checksum`, so the item stays in the library, now remote-only
+    /// again. `Active`/`Paused`/`Queued`/`Failed` rows are never
+    /// touched. An explicit action, never run automatically.
+    pub fn enforce_download_quota(ctx: &AppContext) -> Result<CacheEvictionReport> {
+        let remaining = Self::download_directory_size_bytes(ctx)?;
+        let Some(quota) = SettingsService::download_quota_bytes(ctx)? else {
+            return Ok(no_op_report(remaining));
+        };
+        if remaining <= quota {
+            return Ok(no_op_report(remaining));
+        }
+
+        struct DownloadRow {
+            id: String,
+            destination: String,
+            completed_at: Option<String>,
+            pinned: bool,
+            item_pinned: bool,
+        }
+        let rows: Vec<DownloadRow> = {
+            let conn = ctx.db.connection();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT d.id, d.destination, d.completed_at, d.pinned, \
+                     COALESCE(us.pinned, 0) \
+                     FROM downloads d \
+                     LEFT JOIN user_state us ON us.item_id = d.item_id \
+                     WHERE d.state = 'completed'",
+                )
+                .map_err(database::DatabaseError::from)?;
+            let mapped = stmt
+                .query_map([], |row| {
+                    Ok(DownloadRow {
+                        id: row.get(0)?,
+                        destination: row.get(1)?,
+                        completed_at: row.get(2)?,
+                        pinned: row.get::<_, i64>(3)? != 0,
+                        item_pinned: row.get::<_, i64>(4)? != 0,
+                    })
+                })
+                .map_err(database::DatabaseError::from)?;
+            let mut out = Vec::new();
+            for row in mapped {
+                out.push(row.map_err(database::DatabaseError::from)?);
+            }
+            out
+        };
+
+        let candidates: Vec<EvictionCandidate> = rows
+            .iter()
+            .map(|row| {
+                let path = PathBuf::from(&row.destination);
+                let recency = row
+                    .completed_at
+                    .as_deref()
+                    .and_then(crate::time_format::from_rfc3339)
+                    .map(std::time::SystemTime::from)
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                EvictionCandidate {
+                    path,
+                    recency,
+                    size,
+                    protected: row.pinned || row.item_pinned,
+                }
+            })
+            .collect();
+
+        let report = evict_until_under_quota(remaining, quota, candidates);
+
+        // Mark whichever files actually got removed as `Evicted` and
+        // clear their variant's local-file fields. `evict_until_under_quota`
+        // only reports counts, not which paths it removed, so this
+        // reconciles by checking existence after the fact — the same
+        // approach `enforce_cache_quota` doesn't need (nothing there
+        // tracks per-file DB rows).
+        let conn = ctx.db.connection();
+        for row in &rows {
+            if !PathBuf::from(&row.destination).exists() {
+                conn.execute(
+                    "UPDATE downloads SET state = 'evicted', temp_path = NULL WHERE id = ?1",
+                    rusqlite::params![row.id],
+                )
+                .map_err(database::DatabaseError::from)?;
+                conn.execute(
+                    "UPDATE media_variants SET local_path = NULL, file_size = NULL, checksum = NULL \
+                     WHERE local_path = ?1",
+                    rusqlite::params![row.destination],
+                )
+                .map_err(database::DatabaseError::from)?;
             }
         }
 
-        Ok(CacheEvictionReport {
-            evicted_files,
-            evicted_bytes,
-            remaining_bytes: remaining,
-        })
+        Ok(report)
     }
 
     /// Wipes every locally stored preference, playback/reading state,
@@ -552,6 +699,153 @@ mod tests {
         assert_eq!(report.evicted_files, 1);
         assert_eq!(report.evicted_bytes, 1000);
         assert_eq!(report.remaining_bytes, 2000);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn insert_completed_download(
+        ctx: &AppContext,
+        item_id: domain::ItemId,
+        variant_id: domain::VariantId,
+        destination: &std::path::Path,
+        bytes: usize,
+        seconds_ago: u64,
+        pinned: bool,
+    ) -> String {
+        fs::write(destination, vec![0u8; bytes]).unwrap();
+        let download_id = domain::DownloadId::new().to_string();
+        let completed_at = to_rfc3339(
+            time::OffsetDateTime::now_utc() - std::time::Duration::from_secs(seconds_ago),
+        );
+        ctx.db
+            .connection()
+            .execute(
+                "INSERT INTO downloads (id, item_id, variant_id, state, destination, bytes_received, \
+                 checksum_state, retry_count, created_at, completed_at, pinned) \
+                 VALUES (?1, ?2, ?3, 'completed', ?4, ?5, 'unavailable', 0, datetime('now'), ?6, ?7)",
+                rusqlite::params![
+                    download_id,
+                    item_id.to_string(),
+                    variant_id.to_string(),
+                    destination.to_string_lossy(),
+                    bytes as i64,
+                    completed_at,
+                    pinned as i64,
+                ],
+            )
+            .unwrap();
+        ctx.db
+            .connection()
+            .execute(
+                "UPDATE media_variants SET local_path = ?2 WHERE id = ?1",
+                rusqlite::params![variant_id.to_string(), destination.to_string_lossy()],
+            )
+            .unwrap();
+        download_id
+    }
+
+    #[test]
+    fn enforce_download_quota_is_a_no_op_when_no_quota_is_set() {
+        let (ctx, _dir) = test_ctx();
+        let (item_id, variant_id) = insert_item_with_variant(&ctx);
+        let downloads_dir = ctx.data_dir.join("downloads");
+        fs::create_dir_all(&downloads_dir).unwrap();
+        insert_completed_download(
+            &ctx,
+            item_id,
+            variant_id,
+            &downloads_dir.join("a.bin"),
+            1024,
+            10,
+            false,
+        );
+
+        let report = PrivacyService::enforce_download_quota(&ctx).unwrap();
+        assert_eq!(report.evicted_files, 0);
+        assert_eq!(report.remaining_bytes, 1024);
+    }
+
+    #[test]
+    fn enforce_download_quota_evicts_oldest_first_and_never_evicts_pinned_downloads_or_pinned_items(
+    ) {
+        let (ctx, _dir) = test_ctx();
+        let downloads_dir = ctx.data_dir.join("downloads");
+        fs::create_dir_all(&downloads_dir).unwrap();
+
+        let (old_item, old_variant) = insert_item_with_variant(&ctx);
+        let (row_pinned_item, row_pinned_variant) = insert_item_with_variant(&ctx);
+        let (item_pinned_item, item_pinned_variant) = insert_item_with_variant(&ctx);
+        let (_new_item, new_variant) = insert_item_with_variant(&ctx);
+        crate::user_state::UserStateService::set_pinned(&ctx, item_pinned_item, true).unwrap();
+
+        let old_path = downloads_dir.join("old.bin");
+        let row_pinned_path = downloads_dir.join("row-pinned.bin");
+        let item_pinned_path = downloads_dir.join("item-pinned.bin");
+        let new_path = downloads_dir.join("new.bin");
+
+        insert_completed_download(&ctx, old_item, old_variant, &old_path, 1000, 400, false);
+        insert_completed_download(
+            &ctx,
+            row_pinned_item,
+            row_pinned_variant,
+            &row_pinned_path,
+            1000,
+            300,
+            true,
+        );
+        insert_completed_download(
+            &ctx,
+            item_pinned_item,
+            item_pinned_variant,
+            &item_pinned_path,
+            1000,
+            200,
+            false,
+        );
+        insert_completed_download(
+            &ctx,
+            item_pinned_item,
+            new_variant,
+            &new_path,
+            1000,
+            10,
+            false,
+        );
+
+        SettingsService::set_download_quota_bytes(&ctx, Some(2500)).unwrap();
+        let report = PrivacyService::enforce_download_quota(&ctx).unwrap();
+
+        assert!(
+            !old_path.exists(),
+            "oldest non-pinned download must be evicted"
+        );
+        assert!(
+            row_pinned_path.exists(),
+            "row-pinned download must never be evicted"
+        );
+        assert!(
+            item_pinned_path.exists(),
+            "download of a pinned item must never be evicted"
+        );
+        assert!(
+            new_path.exists(),
+            "newest download has no need to be evicted"
+        );
+        assert_eq!(report.evicted_files, 1);
+        assert_eq!(report.evicted_bytes, 1000);
+
+        let variant_local_path: Option<String> = ctx
+            .db
+            .connection()
+            .query_row(
+                "SELECT local_path FROM media_variants WHERE id = ?1",
+                rusqlite::params![old_variant.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            variant_local_path.is_none(),
+            "evicted variant must go remote-only again"
+        );
     }
 
     #[test]

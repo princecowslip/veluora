@@ -83,6 +83,30 @@ async fn browse_fetches_and_parses_a_real_atom_feed() {
 }
 
 #[tokio::test]
+async fn browse_extracts_enclosure_urls_from_a_real_feed() {
+    const RSS: &str = include_str!("../fixtures/sample_rss_with_enclosure.xml");
+    let addr = spawn_fixture_server(RSS).await;
+    let source = source_for(format!("http://{addr}/feed.xml"));
+
+    match FeedConnector::new().browse(&source, None).await {
+        ConnectorResult::Success(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].title, "Episode One");
+            assert_eq!(
+                items[0].download_url.as_deref(),
+                Some("https://example.test/files/episode-one.mp3")
+            );
+            assert_eq!(items[0].download_mime_type.as_deref(), Some("audio/mpeg"));
+            assert_eq!(items[0].download_size_bytes, Some(654321));
+
+            assert_eq!(items[1].title, "Show Notes Only");
+            assert_eq!(items[1].download_url, None);
+        }
+        other => panic!("expected Success, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn browse_maps_a_404_to_not_found() {
     let app = Router::new(); // no routes registered — every request 404s
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

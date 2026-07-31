@@ -410,6 +410,9 @@ mod tests {
                 tags: Vec::new(),
                 media_type: domain::MediaType::Other,
                 thumbnail_url: None,
+                download_url: None,
+                download_mime_type: None,
+                download_size_bytes: None,
             }],
             ..State::default()
         };
@@ -456,6 +459,9 @@ mod tests {
             tags: Vec::new(),
             media_type: domain::MediaType::Story,
             thumbnail_url: None,
+            download_url: None,
+            download_mime_type: None,
+            download_size_bytes: None,
         };
 
         let _ = update(
@@ -483,6 +489,9 @@ mod tests {
                 tags: Vec::new(),
                 media_type: domain::MediaType::Other,
                 thumbnail_url: None,
+                download_url: None,
+                download_mime_type: None,
+                download_size_bytes: None,
             }],
             ..State::default()
         };
@@ -516,6 +525,9 @@ mod tests {
             tags: Vec::new(),
             media_type: domain::MediaType::Story,
             thumbnail_url: None,
+            download_url: None,
+            download_mime_type: None,
+            download_size_bytes: None,
         };
 
         let _ = update(&mut state, &ctx, Message::Import(item, source.id));

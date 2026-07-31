@@ -1,4 +1,5 @@
 pub mod discover;
+pub mod downloads;
 pub mod home;
 pub mod library;
 pub mod lock;

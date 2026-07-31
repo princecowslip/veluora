@@ -120,6 +120,31 @@ impl SettingsService {
             None => Self::clear_raw(ctx, "cache_quota_bytes"),
         }
     }
+
+    /// The permanent-download eviction ceiling in bytes — `None` means
+    /// unlimited (the default). See `PrivacyService::enforce_download_quota`.
+    pub fn download_quota_bytes(ctx: &AppContext) -> Result<Option<u64>> {
+        Ok(Self::get_raw(ctx, "download_quota_bytes")?.and_then(|s| s.parse().ok()))
+    }
+
+    pub fn set_download_quota_bytes(ctx: &AppContext, quota: Option<u64>) -> Result<()> {
+        match quota {
+            Some(bytes) => Self::set_raw(ctx, "download_quota_bytes", &bytes.to_string()),
+            None => Self::clear_raw(ctx, "download_quota_bytes"),
+        }
+    }
+
+    /// The destination-path template `DownloadService::add` renders a
+    /// completed download's filename from. Supported tokens: `{title}`,
+    /// `{source}`, `{source_id}`, `{item_id}`, `{sequence}`, `{ext}`.
+    pub fn download_naming_template(ctx: &AppContext) -> Result<String> {
+        Ok(Self::get_raw(ctx, "download_naming_template")?
+            .unwrap_or_else(|| "{source}/{title} [{item_id}]/{sequence}.{ext}".to_string()))
+    }
+
+    pub fn set_download_naming_template(ctx: &AppContext, template: &str) -> Result<()> {
+        Self::set_raw(ctx, "download_naming_template", template)
+    }
 }
 
 fn bool_str(b: bool) -> &'static str {
@@ -187,6 +212,33 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn download_quota_bytes_defaults_to_unlimited_and_round_trips() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        assert_eq!(SettingsService::download_quota_bytes(&ctx).unwrap(), None);
+        SettingsService::set_download_quota_bytes(&ctx, Some(1024)).unwrap();
+        assert_eq!(
+            SettingsService::download_quota_bytes(&ctx).unwrap(),
+            Some(1024)
+        );
+        SettingsService::set_download_quota_bytes(&ctx, None).unwrap();
+        assert_eq!(SettingsService::download_quota_bytes(&ctx).unwrap(), None);
+    }
+
+    #[test]
+    fn download_naming_template_has_a_sensible_default_and_round_trips() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        assert_eq!(
+            SettingsService::download_naming_template(&ctx).unwrap(),
+            "{source}/{title} [{item_id}]/{sequence}.{ext}"
+        );
+        SettingsService::set_download_naming_template(&ctx, "{title}.{ext}").unwrap();
+        assert_eq!(
+            SettingsService::download_naming_template(&ctx).unwrap(),
+            "{title}.{ext}"
+        );
     }
 
     #[test]

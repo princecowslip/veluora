@@ -18,3 +18,4 @@ uuid.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 axum.workspace = true
+url.workspace = true

@@ -357,6 +357,18 @@ connector source in one call, plus `local-api`/CLI/GUI/TUI surfaces —
 closing the gap left by Milestone F shipping connectors and per-source
 browse (`SourceService::browse`) without a unified cross-source query.
 
+### Milestone J — Downloads and offline use
+
+Workstream 11 made real: `FeedConnector` extended to declare
+`capabilities().downloads` and surface a per-entry enclosure URL, a
+`DownloadService` with eligibility checks, an atomic temp-file →
+verified-rename fetch/resume engine coordinated through the shared
+database rather than an in-memory flag (no background daemon exists in
+this codebase), quota enforcement sharing its eviction loop with
+Milestone G's cache quota, and `local-api`/CLI/GUI/TUI surfaces —
+closing the gap `KNOWN_ISSUES.md` flagged since Milestone F shipped
+connectors with no connector able to exercise a real download.
+
 ## Definition of done
 
 A feature is complete only when:

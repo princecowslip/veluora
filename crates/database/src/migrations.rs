@@ -45,6 +45,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "pinned",
         sql: include_str!("../../../migrations/0005_pinned.sql"),
     },
+    Migration {
+        version: 6,
+        name: "downloads",
+        sql: include_str!("../../../migrations/0006_downloads.sql"),
+    },
 ];
 
 pub fn run_migrations(conn: &mut Connection, db_path: &Path) -> Result<()> {

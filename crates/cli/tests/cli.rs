@@ -977,3 +977,268 @@ fn source_import_creates_a_searchable_item() {
         .success()
         .stdout(predicate::str::contains("\"total\":1"));
 }
+
+fn spawn_fixture_download_server(body: Vec<u8>) -> std::net::SocketAddr {
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = std_listener.local_addr().unwrap();
+    std_listener.set_nonblocking(true).unwrap();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(std_listener).unwrap();
+            let app = axum::Router::new()
+                .route("/file.bin", axum::routing::get(move || async move { body }));
+            axum::serve(listener, app).await.unwrap();
+        });
+    });
+    addr
+}
+
+/// A raw TCP server (like `application/tests/download.rs`'s truncating
+/// fixture) that writes the full body in small chunks with a delay
+/// between each — slow enough that a test has a real window to issue a
+/// `download pause` from a second process while the first is still
+/// mid-transfer.
+fn spawn_slow_fixture_server(
+    body: Vec<u8>,
+    chunk_size: usize,
+    delay_ms: u64,
+) -> std::net::SocketAddr {
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = std_listener.local_addr().unwrap();
+    std_listener.set_nonblocking(true).unwrap();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(std_listener).unwrap();
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let body = body.clone();
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let mut buf = [0u8; 2048];
+                    let _ = socket.read(&mut buf).await;
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    if socket.write_all(header.as_bytes()).await.is_err() {
+                        return;
+                    }
+                    for chunk in body.chunks(chunk_size) {
+                        if socket.write_all(chunk).await.is_err() {
+                            return;
+                        }
+                        let _ = socket.flush().await;
+                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    }
+                });
+            }
+        });
+    });
+    addr
+}
+
+/// Adds a feed source and imports a download-eligible `Video` item
+/// pointing at `download_url`, all through real CLI subprocess calls —
+/// returns `(item_id, variant_id)`.
+fn add_downloadable_item(
+    home: &std::path::Path,
+    download_url: &str,
+    size: usize,
+) -> (String, String) {
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home);
+        c.env("XDG_DATA_HOME", home.join("data"));
+    };
+
+    let mut add_source = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut add_source);
+    let output = add_source
+        .args([
+            "--output",
+            "json",
+            "source",
+            "add",
+            FEED_CONNECTOR_ID,
+            "Fixture Feed",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let source: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let source_id = source["id"].as_str().unwrap().to_string();
+
+    let remote_item_json = serde_json::json!({
+        "source_item_id": "guid-cli",
+        "title": "CLI Download Item",
+        "description": null,
+        "canonical_url": "https://example.test/cli-item",
+        "tags": [],
+        "media_type": "video",
+        "thumbnail_url": null,
+        "download_url": download_url,
+        "download_mime_type": "video/mp4",
+        "download_size_bytes": size,
+    })
+    .to_string();
+
+    let mut import_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut import_cmd);
+    let output = import_cmd
+        .args([
+            "--output",
+            "json",
+            "source",
+            "import",
+            &source_id,
+            "--json",
+            &remote_item_json,
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let imported: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let item_id = imported["item_id"].as_str().unwrap().to_string();
+
+    let mut show_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut show_cmd);
+    let output = show_cmd
+        .args(["--output", "json", "item", "show", &item_id])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let detail: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let variant_id = detail["variants"][0]["id"].as_str().unwrap().to_string();
+
+    (item_id, variant_id)
+}
+
+#[test]
+fn download_add_completes_a_real_download() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+
+    let content = vec![5u8; 4096];
+    let addr = spawn_fixture_download_server(content.clone());
+    let (item_id, variant_id) =
+        add_downloadable_item(home, &format!("http://{addr}/file.bin"), content.len());
+
+    let mut add_cmd = Command::cargo_bin("veloura").unwrap();
+    add_cmd
+        .env("HOME", home)
+        .env("XDG_DATA_HOME", home.join("data"));
+    add_cmd
+        .args(["download", "add", &item_id, &variant_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Completed"));
+}
+
+#[test]
+fn download_eligibility_reports_ineligible_for_an_unknown_item() {
+    let (mut cmd, _dir) = isolated_cmd();
+    let unknown = uuid::Uuid::new_v4();
+    cmd.args([
+        "download",
+        "eligibility",
+        &unknown.to_string(),
+        &unknown.to_string(),
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("not eligible"));
+}
+
+#[test]
+fn download_quota_requires_either_a_value_or_clear() {
+    let (mut cmd, _dir) = isolated_cmd();
+    cmd.args(["download", "quota"]).assert().failure().code(2);
+}
+
+#[test]
+fn download_pause_from_a_second_process_stops_a_running_download() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+
+    // 300 KB in 10 KB chunks with a 30ms delay between writes — a real
+    // window (~900ms total) to pause mid-transfer.
+    let content = vec![9u8; 300_000];
+    let addr = spawn_slow_fixture_server(content.clone(), 10_000, 30);
+    let (item_id, variant_id) =
+        add_downloadable_item(home, &format!("http://{addr}/file.bin"), content.len());
+
+    let bin = env!("CARGO_BIN_EXE_veloura");
+    let mut add_child = std::process::Command::new(bin)
+        .env("HOME", home)
+        .env("XDG_DATA_HOME", home.join("data"))
+        .args(["--output", "json", "download", "add", &item_id, &variant_id])
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home);
+        c.env("XDG_DATA_HOME", home.join("data"));
+    };
+
+    // Poll `download list` — a separate, fast process — until the
+    // in-flight download's row appears; `add()` inserts it
+    // synchronously before the slow fetch begins.
+    let mut download_id = None;
+    for _ in 0..200 {
+        let mut list_cmd = Command::cargo_bin("veloura").unwrap();
+        env_pair(&mut list_cmd);
+        let output = list_cmd
+            .args(["--output", "json", "download", "list"])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        if let Some(line) = stdout.lines().next() {
+            if let Ok(list) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(first) = list.as_array().and_then(|a| a.first()) {
+                    download_id = first["id"].as_str().map(str::to_string);
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(15));
+    }
+    let download_id = download_id.expect("a queued download row should appear quickly");
+
+    // Give the transfer a moment to actually start streaming bytes.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    let mut pause_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut pause_cmd);
+    pause_cmd
+        .args(["download", "pause", &download_id])
+        .assert()
+        .success();
+
+    let status = add_child.wait().unwrap();
+    assert!(status.success());
+
+    let mut list_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut list_cmd);
+    let output = list_cmd
+        .args(["--output", "json", "download", "list"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let list: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let state = list[0]["state"].as_str().unwrap();
+    assert_eq!(
+        state, "paused",
+        "a second, independent process's pause must stop the first process's transfer"
+    );
+
+    let bytes_received = list[0]["bytes_received"].as_u64().unwrap();
+    assert!(
+        bytes_received > 0 && bytes_received < content.len() as u64,
+        "expected a genuine partial transfer, got {bytes_received} of {} bytes",
+        content.len()
+    );
+}

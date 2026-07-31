@@ -125,17 +125,17 @@ Exit criteria:
 
 Deliverables:
 
-- download state machine
-- resume
-- verification
-- quotas
-- cache policy
-- offline indicators
+- download state machine — delivered (`domain::DownloadState`/`application::download::DownloadService`, Milestone J)
+- resume — delivered (`Range`/`If-Range`-based resume, restarting from byte zero when the source's content changed or ignored the range; see `KNOWN_ISSUES.md` for what isn't covered — e.g. no automatic resume-on-restart without a daemon)
+- verification — delivered architecturally (a `blake3` checksum is always computed and compared when a source declares one), but not exercised end-to-end yet — `FeedConnector` (the only download-capable connector) has no checksum field to declare
+- quotas — delivered (`PrivacyService::enforce_download_quota`, sharing its eviction loop with the existing cache-quota policy)
+- cache policy — delivered for the "never evict pinned" rule; not delivered for `docs/17-downloads-cache-storage.md`'s other listed eviction policies (least-recently-opened, oldest-unviewed, per-source limits)
+- offline indicators — not delivered; there's no UI surface distinguishing "available offline" from "requires the source" beyond `media_variants.local_path` being set or not
 
 Exit criteria:
 
-- Download is shown only for authorized variants.
-- Interrupted downloads recover safely.
+- Download is shown only for authorized variants. — met: `DownloadService::check_eligibility` gates on `download_permitted` (ADR-007), a downloads-capable connector, an enabled source, and no matching block rule, and every UI surface (GUI's Viewer, CLI's `download add`, `local-api`'s `POST /downloads`) goes through it.
+- Interrupted downloads recover safely. — met: a temp file is only ever promoted to the final path via an atomic rename after the transfer (and any declared checksum) succeeds, so a partial or corrupted download never appears complete; see `KNOWN_ISSUES.md` for what's still out of scope.
 
 ## Phase 8: Terminal UI
 

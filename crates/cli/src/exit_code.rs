@@ -14,6 +14,8 @@ pub enum ExitCode {
     GeneralFailure = 1,
     InvalidArguments = 2,
     NotFound = 3,
+    NetworkFailure = 6,
+    UnsupportedCapability = 8,
     DatabaseFailure = 11,
     ConfigurationFailure = 12,
 }
@@ -35,6 +37,8 @@ impl From<&application::AppError> for ExitCode {
             application::AppError::InvalidQuery(_) | application::AppError::InvalidPath(_) => {
                 ExitCode::InvalidArguments
             }
+            application::AppError::Network(_) => ExitCode::NetworkFailure,
+            application::AppError::UnsupportedCapability(_) => ExitCode::UnsupportedCapability,
         }
     }
 }

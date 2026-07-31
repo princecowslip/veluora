@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed With Enclosures</title>
+    <link>https://example.test/</link>
+    <description>A fixture feed with a downloadable enclosure for connector tests.</description>
+    <item>
+      <title>Episode One</title>
+      <link>https://example.test/episode-one</link>
+      <guid>https://example.test/episode-one</guid>
+      <description>The first episode in the feed.</description>
+      <category>audio</category>
+      <enclosure url="https://example.test/files/episode-one.mp3" length="654321" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>Show Notes Only</title>
+      <link>https://example.test/show-notes</link>
+      <guid>https://example.test/show-notes</guid>
+      <description>An entry with no enclosure at all.</description>
+    </item>
+  </channel>
+</rss>

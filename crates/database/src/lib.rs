@@ -317,6 +317,70 @@ mod tests {
         assert!(!default_pinned);
     }
 
+    #[test]
+    fn migration_0006_adds_download_columns() {
+        let db = Database::open_in_memory().expect("open");
+        db.connection()
+            .execute(
+                "INSERT INTO media_items (id, media_type, title, rating_classification, discovered_at, updated_at)
+                 VALUES ('66666666-6666-6666-6666-666666666666', 'video', 'Downloadable', 'unrated', datetime('now'), datetime('now'))",
+                [],
+            )
+            .unwrap();
+        db.connection()
+            .execute(
+                "INSERT INTO media_variants (id, item_id, mime_type, format)
+                 VALUES ('55555555-5555-5555-5555-555555555555', '66666666-6666-6666-6666-666666666666', 'video/mp4', 'remote')",
+                [],
+            )
+            .unwrap();
+        db.connection()
+            .execute(
+                "INSERT INTO sources (id, connector_id, display_name) VALUES ('s1', 'c1', 'Test Source')",
+                [],
+            )
+            .unwrap();
+        db.connection()
+            .execute(
+                "INSERT INTO downloads (id, item_id, variant_id, destination, created_at, source_id, pinned, temp_path, expected_checksum, checksum_algorithm, etag, last_modified, updated_at)
+                 VALUES ('d1', '66666666-6666-6666-6666-666666666666', '55555555-5555-5555-5555-555555555555', '/downloads/x.mp4', datetime('now'), 's1', 1, '/tmp/x.mp4.part', 'abc123', 'blake3', 'W/\"etag\"', 'Mon, 01 Jan 2024 00:00:00 GMT', datetime('now'))",
+                [],
+            )
+            .unwrap();
+
+        let (source_id, pinned, temp_path): (String, bool, String) = db
+            .connection()
+            .query_row(
+                "SELECT source_id, pinned, temp_path FROM downloads WHERE id = 'd1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(source_id, "s1");
+        assert!(pinned);
+        assert_eq!(temp_path, "/tmp/x.mp4.part");
+
+        // Default is unpinned, and the resume-validator columns default
+        // to NULL, when not specified.
+        db.connection()
+            .execute(
+                "INSERT INTO downloads (id, item_id, variant_id, destination, created_at)
+                 VALUES ('d2', '66666666-6666-6666-6666-666666666666', '55555555-5555-5555-5555-555555555555', '/downloads/y.mp4', datetime('now'))",
+                [],
+            )
+            .unwrap();
+        let (default_pinned, default_source_id): (bool, Option<String>) = db
+            .connection()
+            .query_row(
+                "SELECT pinned, source_id FROM downloads WHERE id = 'd2'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(!default_pinned);
+        assert_eq!(default_source_id, None);
+    }
+
     /// The "upgrade... tested" release gate from `docs/46`'s Workstream
     /// 13 — every other migration test opens a fresh, fully-migrated
     /// database, which never actually exercises evolving a database
@@ -372,7 +436,7 @@ mod tests {
         }
 
         // Reopening through the normal path applies every migration
-        // still pending (0002 through 0005) against the real file.
+        // still pending (0002 through the latest) against the real file.
         let db = Database::open(&db_path).expect("upgrade should succeed");
         assert_eq!(
             db.applied_migration_count().unwrap(),

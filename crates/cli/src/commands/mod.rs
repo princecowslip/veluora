@@ -1,6 +1,7 @@
 pub mod collection;
 pub mod diagnostics;
 pub mod discover;
+pub mod download;
 pub mod favorite;
 pub mod item;
 pub mod library;

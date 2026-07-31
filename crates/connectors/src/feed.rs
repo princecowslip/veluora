@@ -86,7 +86,7 @@ impl Connector for FeedConnector {
             browse: true,
             item_details: true,
             streaming: false,
-            downloads: false,
+            downloads: true,
             comments: false,
             authentication: vec![AuthMethod::Anonymous],
             media_types: vec![MediaType::Story, MediaType::Other],
@@ -172,7 +172,39 @@ impl Connector for FeedConnector {
     }
 }
 
+/// A downloadable attachment for an entry, if it has one — an RSS
+/// `<enclosure>` (parsed by `feed_rs` into a default `MediaObject`'s
+/// `content`, per its RSS2 parser) or an Atom `<link rel="enclosure">`.
+/// RSS is checked first since it's the more common "podcast-style
+/// attachment" shape; only the first eligible attachment is used —
+/// this milestone downloads a single primary variant per item, not a
+/// gallery of attachments.
+fn entry_download(entry: &feed_rs::model::Entry) -> (Option<String>, Option<String>, Option<u64>) {
+    for media in &entry.media {
+        for content in &media.content {
+            if let Some(url) = &content.url {
+                return (
+                    Some(url.to_string()),
+                    content.content_type.as_ref().map(|m| m.to_string()),
+                    content.size,
+                );
+            }
+        }
+    }
+    for link in &entry.links {
+        if link.rel.as_deref() == Some("enclosure") {
+            return (
+                Some(link.href.clone()),
+                link.media_type.clone(),
+                link.length,
+            );
+        }
+    }
+    (None, None, None)
+}
+
 fn entry_to_remote_item(entry: feed_rs::model::Entry) -> RemoteItem {
+    let (download_url, download_mime_type, download_size_bytes) = entry_download(&entry);
     RemoteItem {
         source_item_id: entry.id,
         title: entry
@@ -191,6 +223,9 @@ fn entry_to_remote_item(entry: feed_rs::model::Entry) -> RemoteItem {
             .collect(),
         media_type: MediaType::Story,
         thumbnail_url: None,
+        download_url,
+        download_mime_type,
+        download_size_bytes,
     }
 }
 
@@ -213,12 +248,13 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_never_declare_search_or_downloads() {
+    fn capabilities_declare_downloads_but_not_search() {
         let capabilities = FeedConnector::new().capabilities();
         assert!(!capabilities.search, "feeds have no server-side search");
         assert!(
-            !capabilities.downloads,
-            "no download workstream this milestone"
+            capabilities.downloads,
+            "the connector can fetch enclosure URLs, but per-entry \
+             eligibility still depends on that specific entry having one"
         );
     }
 
@@ -243,5 +279,84 @@ mod tests {
         let item = entry_to_remote_item(entry);
         assert_eq!(item.title, "(untitled)");
         assert_eq!(item.source_item_id, "guid-1");
+    }
+
+    #[tokio::test]
+    async fn entry_conversion_extracts_an_rss_enclosure_as_the_download_url() {
+        let media = feed_rs::model::MediaObject {
+            content: vec![feed_rs::model::MediaContent {
+                url: Some(url::Url::parse("http://example.test/episode.mp3").unwrap()),
+                content_type: Some("audio/mpeg".parse().unwrap()),
+                height: None,
+                width: None,
+                duration: None,
+                size: Some(1234),
+                rating: None,
+            }],
+            ..Default::default()
+        };
+        let entry = feed_rs::model::Entry {
+            id: "guid-1".to_string(),
+            media: vec![media],
+            ..Default::default()
+        };
+        let item = entry_to_remote_item(entry);
+        assert_eq!(
+            item.download_url.as_deref(),
+            Some("http://example.test/episode.mp3")
+        );
+        assert_eq!(item.download_mime_type.as_deref(), Some("audio/mpeg"));
+        assert_eq!(item.download_size_bytes, Some(1234));
+    }
+
+    #[tokio::test]
+    async fn entry_conversion_extracts_an_atom_enclosure_link_as_the_download_url() {
+        let entry = feed_rs::model::Entry {
+            id: "guid-1".to_string(),
+            links: vec![
+                feed_rs::model::Link {
+                    href: "http://example.test/page".to_string(),
+                    rel: Some("alternate".to_string()),
+                    media_type: None,
+                    href_lang: None,
+                    title: None,
+                    length: None,
+                },
+                feed_rs::model::Link {
+                    href: "http://example.test/episode.mp3".to_string(),
+                    rel: Some("enclosure".to_string()),
+                    media_type: Some("audio/mpeg".to_string()),
+                    href_lang: None,
+                    title: None,
+                    length: Some(5678),
+                },
+            ],
+            ..Default::default()
+        };
+        let item = entry_to_remote_item(entry);
+        assert_eq!(
+            item.download_url.as_deref(),
+            Some("http://example.test/episode.mp3")
+        );
+        assert_eq!(item.download_mime_type.as_deref(), Some("audio/mpeg"));
+        assert_eq!(item.download_size_bytes, Some(5678));
+    }
+
+    #[tokio::test]
+    async fn entry_conversion_has_no_download_url_without_an_enclosure() {
+        let entry = feed_rs::model::Entry {
+            id: "guid-1".to_string(),
+            links: vec![feed_rs::model::Link {
+                href: "http://example.test/page".to_string(),
+                rel: Some("alternate".to_string()),
+                media_type: None,
+                href_lang: None,
+                title: None,
+                length: None,
+            }],
+            ..Default::default()
+        };
+        let item = entry_to_remote_item(entry);
+        assert_eq!(item.download_url, None);
     }
 }

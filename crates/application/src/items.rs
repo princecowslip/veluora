@@ -32,6 +32,7 @@ pub struct VariantSummary {
     pub mime_type: String,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub download_permitted: bool,
 }
 
 /// What [`ItemService::delete`] actually removed — the "deletion
@@ -68,7 +69,7 @@ impl ItemService {
         let variants = {
             let conn = ctx.db.connection();
             let mut stmt = conn
-                .prepare("SELECT id, local_path, mime_type, width, height FROM media_variants WHERE item_id = ?1")
+                .prepare("SELECT id, local_path, mime_type, width, height, download_permitted FROM media_variants WHERE item_id = ?1")
                 .map_err(database::DatabaseError::from)?;
             let rows = stmt
                 .query_map(params![item_id.to_string()], |row| {
@@ -78,6 +79,7 @@ impl ItemService {
                         mime_type: row.get(2)?,
                         width: row.get::<_, Option<i64>>(3)?.map(|v| v as u32),
                         height: row.get::<_, Option<i64>>(4)?.map(|v| v as u32),
+                        download_permitted: row.get::<_, i64>(5)? != 0,
                     })
                 })
                 .map_err(database::DatabaseError::from)?;

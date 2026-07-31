@@ -7,10 +7,10 @@
 use std::sync::Arc;
 
 use application::{
-    AppContext, ComicService, ItemService, OpenTarget, PlaybackService, PrivacyService,
-    SettingsService, StoryService, UserStateService,
+    AppContext, ComicService, DownloadService, ItemService, OpenTarget, PlaybackService,
+    PrivacyService, SettingsService, StoryService, UserStateService,
 };
-use domain::{ItemId, Progress};
+use domain::{ItemId, Progress, VariantId};
 use iced::widget::{button, column, container, image, row, scrollable, text, text_input};
 use iced::{Element, Length, Task};
 
@@ -26,6 +26,10 @@ pub struct State {
     pub pinned: bool,
     pub delete_confirm_armed: bool,
     pub error: Option<String>,
+    /// The variant `Message::Download` would queue — `None` when
+    /// nothing on this item is `download_permitted && !local_path`.
+    pub downloadable_variant_id: Option<VariantId>,
+    pub download_message: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +47,8 @@ pub enum Message {
     ArmDelete,
     CancelDelete,
     ConfirmDelete,
+    Download,
+    DownloadQueued(Result<(), String>),
 }
 
 /// Signals the parent screen needs to act — currently just "the item is
@@ -65,9 +71,15 @@ pub fn load(
 ) {
     *state = State::default();
     state.item_id = Some(item_id);
-    state.item_title = ItemService::get(ctx, item_id)
-        .map(|d| d.title)
-        .unwrap_or_default();
+    let detail = ItemService::get(ctx, item_id).ok();
+    state.item_title = detail.as_ref().map(|d| d.title.clone()).unwrap_or_default();
+    state.downloadable_variant_id = detail.as_ref().and_then(|d| {
+        d.variants
+            .iter()
+            .find(|v| v.download_permitted && v.local_path.is_none())
+            .and_then(|v| uuid::Uuid::parse_str(&v.id).ok())
+            .map(VariantId)
+    });
 
     let user_state = UserStateService::get(ctx, item_id).ok();
     if let Some(state_ref) = &user_state {
@@ -273,6 +285,40 @@ pub fn update(
                 (Task::none(), None)
             }
         },
+        Message::Download => {
+            let Some(variant_id) = state.downloadable_variant_id else {
+                return (Task::none(), None);
+            };
+            match DownloadService::add(ctx, item_id, variant_id) {
+                Ok(download) => {
+                    state.download_message = Some("Queued — see Downloads.".to_string());
+                    let ctx = ctx.clone();
+                    let id = download.id;
+                    (
+                        Task::perform(
+                            async move {
+                                DownloadService::run(&ctx, id)
+                                    .await
+                                    .map(|_| ())
+                                    .map_err(|e| e.to_string())
+                            },
+                            Message::DownloadQueued,
+                        ),
+                        None,
+                    )
+                }
+                Err(e) => {
+                    state.download_message = Some(format!("Could not queue download: {e}"));
+                    (Task::none(), None)
+                }
+            }
+        }
+        Message::DownloadQueued(result) => {
+            if let Err(e) = result {
+                state.download_message = Some(format!("Download error: {e}"));
+            }
+            (Task::none(), None)
+        }
     }
 }
 
@@ -340,6 +386,13 @@ pub fn view(state: &State) -> Element<'_, Message> {
             }
         }
         None => {}
+    }
+
+    if state.downloadable_variant_id.is_some() {
+        content = content.push(button("Download").on_press(Message::Download));
+    }
+    if let Some(message) = &state.download_message {
+        content = content.push(text(message.clone()));
     }
 
     content = content.push(
@@ -494,6 +547,68 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM media_items", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    fn insert_downloadable_video_item(ctx: &AppContext) -> ItemId {
+        let source = application::SourceService::add(
+            ctx,
+            connectors::FEED_CONNECTOR_ID,
+            "My Feed".to_string(),
+            serde_json::json!({ "url": "https://example.test/feed.xml" }),
+        )
+        .unwrap();
+        let remote_item = domain::RemoteItem {
+            source_item_id: "guid-1".to_string(),
+            title: "Downloadable Episode".to_string(),
+            description: None,
+            canonical_url: Some("https://example.test/episode".to_string()),
+            tags: Vec::new(),
+            media_type: domain::MediaType::Video,
+            thumbnail_url: None,
+            download_url: Some("https://example.test/files/episode.mp4".to_string()),
+            download_mime_type: Some("video/mp4".to_string()),
+            download_size_bytes: Some(2048),
+        };
+        application::SourceService::import_remote_item(ctx, source.id, remote_item).unwrap()
+    }
+
+    #[test]
+    fn load_populates_the_downloadable_variant_for_an_eligible_item() {
+        let (ctx, _dir) = test_ctx();
+        let item_id = insert_downloadable_video_item(&ctx);
+        let mut state = State::default();
+
+        load(&mut state, &ctx, item_id, None);
+
+        assert!(state.downloadable_variant_id.is_some());
+    }
+
+    #[test]
+    fn load_has_no_downloadable_variant_for_a_local_only_item() {
+        let (ctx, _dir) = test_ctx();
+        let item_id = insert_item(&ctx);
+        let mut state = State::default();
+
+        load(&mut state, &ctx, item_id, None);
+
+        assert!(state.downloadable_variant_id.is_none());
+    }
+
+    #[test]
+    fn download_message_queues_the_download_and_dispatches_a_run_task() {
+        let (ctx, _dir) = test_ctx();
+        let item_id = insert_downloadable_video_item(&ctx);
+        let mut state = State::default();
+        load(&mut state, &ctx, item_id, None);
+        let variant_id = state.downloadable_variant_id.unwrap();
+
+        let (_task, effect) = update(&mut state, &ctx, None, Message::Download);
+        assert!(effect.is_none());
+        assert!(state.download_message.is_some());
+
+        let downloads = application::DownloadService::list(&ctx, Some(item_id)).unwrap();
+        assert_eq!(downloads.len(), 1);
+        assert_eq!(downloads[0].download.variant_id, variant_id);
     }
 
     #[test]
