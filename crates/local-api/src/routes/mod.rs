@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod collections;
+pub mod discover;
 pub mod home;
 pub mod items;
 pub mod library;

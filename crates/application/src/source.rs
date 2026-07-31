@@ -454,7 +454,7 @@ impl Connector for LocalFilesystemConnector {
     // uniformly across every registered connector, local included.
 }
 
-fn search_hit_to_remote_item(hit: crate::search::SearchHit) -> RemoteItem {
+pub(crate) fn search_hit_to_remote_item(hit: crate::search::SearchHit) -> RemoteItem {
     RemoteItem {
         source_item_id: hit.item_id,
         title: hit.title,

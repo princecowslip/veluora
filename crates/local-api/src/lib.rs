@@ -34,6 +34,7 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/api/v1/diagnostics/summary", get(diagnostics_summary))
         .merge(routes::library::router())
         .merge(routes::search::router())
+        .merge(routes::discover::router())
         .merge(routes::items::router())
         .merge(routes::collections::router())
         .merge(routes::cache::router())

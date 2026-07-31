@@ -6,7 +6,7 @@ An honest list of what's explicitly out of scope so far, compiled from each mile
 
 - Only 2 of the 12 connector types `docs/46-implementation-plan.md`'s Workstream 10 names as "implement first" exist: a local-filesystem wrapper and an RSS/Atom feed connector. OPDS, Stash, Hydrus, Jellyfin, Kavita, Komga, a Danbooru-family connector, a Gelbooru-family connector, a metadata-only Stash-box connector, and a browser-handoff template are all unbuilt — most need real service accounts/API keys unavailable in the environment this was built in.
 - Neither existing connector declares the `downloads` capability, so Workstream 11 ("Downloads and offline use" — eligibility checks, a download queue, pause/resume, verification, quotas) has nothing to actually exercise it. What exists instead (Milestone G) is local-only: a `pinned` cache-eviction-exemption flag and cache-quota enforcement over already-local files.
-- No unified cross-source search — `POST /search` stays local-library-only; browsing a connector-backed source is a separate, explicit action (`/sources/:id/browse`), not merged into search results.
+- Discover (`POST /api/v1/discover`) has no cross-source relevance ranking — sources are listed in a stable but not relevance-merged order — and no duplicate collapsing, so the same underlying media appearing via two connectors shows as two separate hits. There's also no true cross-source pagination: `limit_per_source` caps each source's contribution independently rather than offering a single aggregate offset/next-page token, since sources use fundamentally different pagination primitives (local search has real limit/offset, `FeedConnector` takes an opaque cursor it doesn't yet use, other connectors may use yet another mode).
 
 ## Plugins
 
@@ -17,13 +17,13 @@ An honest list of what's explicitly out of scope so far, compiled from each mile
 ## Terminal UI (`tui/`)
 
 - Tier A (Kitty/Sixel inline bitmap thumbnails) is unimplemented — the TUI only supports Tier B (Unicode/color) and Tier C (text-only). Cards show a media-type label instead of a decoded image.
-- No Discover, Queue, or Settings views, and no command-palette/collection-picker/shortcut-help overlay pile — none had real backing data or meaningful terminal settings when Milestone G shipped (before connectors existed). Discover specifically stays deferred even now that connectors exist: `local-api` has no unified cross-source search/browse endpoint — `POST /api/v1/search` is local-library-only, and browsing a connector-backed source is a separate, explicit per-source action (`GET /sources/:id/browse`) — so there's no single call to back a "Discover across all sources" view without first adding a new aggregating route.
+- No Queue or Settings views, and no command-palette/collection-picker/shortcut-help overlay pile — none had real backing data or meaningful terminal settings when Milestone G shipped (before connectors existed).
 - Item deletion and "clear history" aren't exposed from the TUI — `local-api` has no HTTP route for either (the GUI/CLI call the relevant services in-process instead).
 
 ## GUI (`crates/gui`)
 
 - No embedded video/audio playback — video/audio open via a configured external player, matching the CLI's behavior.
-- No Discover, Downloads, or standalone Diagnostics screen (the Settings screen has a diagnostics panel instead).
+- No Downloads or standalone Diagnostics screen (the Settings screen has a diagnostics panel instead).
 - Styling is functional-first, not pixel-accurate to `docs/52-sample-ui-spec.md`.
 - No automated accessibility testing — no iced accessibility-testing harness exists; keyboard/contrast/reduced-motion/screen-reader gates in `docs/28-release-checklist.md`/`docs/39-release-polish-checklist.md` are unverified by automation.
 

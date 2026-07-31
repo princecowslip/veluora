@@ -109,17 +109,17 @@ Exit criteria:
 
 Deliverables:
 
-- query AST
-- translation
-- progressive source results
-- duplicate collapsing
-- source diagnostics
-- saved searches
+- query AST — delivered (`domain::search_query`, Milestone B)
+- translation — delivered (`SourceService`'s per-connector unsupported-clause reporting, Milestone F)
+- progressive source results — delivered (`application::discover::DiscoverService`, Milestone I: per-source results and failures are isolated and reported independently, not blocked on the slowest/broken source)
+- source diagnostics — delivered (`DiscoverSourceStatus` per source, Milestone I)
+- duplicate collapsing — not delivered; the same underlying media appearing via two connectors shows as two separate Discover hits (see `KNOWN_ISSUES.md`)
+- saved searches — not delivered
 
 Exit criteria:
 
-- Results stream independently.
-- Private local metadata is never transmitted.
+- Results stream independently. — met for isolation (a broken source can't block the others); not met for true streaming (Discover's HTTP response is a single synchronous aggregate, not an incremental/event stream).
+- Private local metadata is never transmitted. — met: Discover only ever calls out to a source's own connector with the raw query text, never local-only fields like notes or private tags.
 
 ## Phase 7: Downloads and offline mode
 

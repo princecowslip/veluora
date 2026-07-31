@@ -350,6 +350,13 @@ notcurses TUI, authorized downloads, offline mode.
 
 Sandboxed third-party connector preview and registry governance.
 
+### Milestone I — Unified Discover
+
+A `DiscoverService` aggregating the local library with every enabled
+connector source in one call, plus `local-api`/CLI/GUI/TUI surfaces —
+closing the gap left by Milestone F shipping connectors and per-source
+browse (`SourceService::browse`) without a unified cross-source query.
+
 ## Definition of done
 
 A feature is complete only when:

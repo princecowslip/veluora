@@ -65,6 +65,21 @@ pub enum Command {
         #[arg(long, default_value_t = 0)]
         offset: u32,
     },
+    /// Unified cross-source search: the local library plus every
+    /// enabled connector-backed source, in one call. Unlike `search`
+    /// (local-library-only) or `source browse` (one source at a
+    /// time), this fans out to all of them and isolates per-source
+    /// failures — see `application::discover`.
+    Discover {
+        query: String,
+        /// Repeatable (`--source ID --source ID`); restricts fan-out
+        /// to these sources. Omit to search every enabled source —
+        /// the local library is always included regardless.
+        #[arg(long = "source")]
+        source_ids: Vec<String>,
+        #[arg(long, default_value_t = 25)]
+        limit_per_source: u32,
+    },
     /// Favorite/unfavorite an item.
     Favorite {
         #[command(subcommand)]

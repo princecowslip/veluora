@@ -11,6 +11,7 @@
 #include "views/cache_view.h"
 #include "views/collections_view.h"
 #include "views/diagnostics_view.h"
+#include "views/discover_view.h"
 #include "views/home_view.h"
 #include "views/item_detail_view.h"
 #include "views/library_view.h"
@@ -28,6 +29,7 @@ enum class ViewId {
   Privacy,
   Diagnostics,
   Sources,
+  Discover,
   ItemDetail,
 };
 
@@ -72,6 +74,7 @@ class App {
   std::unique_ptr<PrivacyView> privacy_view_;
   std::unique_ptr<DiagnosticsView> diagnostics_view_;
   std::unique_ptr<SourcesView> sources_view_;
+  std::unique_ptr<DiscoverView> discover_view_;
   std::unique_ptr<ItemDetailView> item_detail_view_;
 
   ViewId active_ = ViewId::Home;

@@ -2,11 +2,15 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Veloura hasn't cut a versioned release yet — this tracks what each milestone actually shipped. See `KNOWN_ISSUES.md` for what's explicitly out of scope so far.
 
-## [Unreleased]
+## Milestone I — Unified Discover (cross-source search) (PR #12)
+
+- New `application::discover::DiscoverService`: aggregates the local library (always searched, even with no "Local filesystem" source configured) with every enabled, non-local connector source in one call. Per-source failures and unsupported query clauses are isolated and reported (`DiscoverSourceStatus`) rather than aborting the whole aggregate, and each hit (`DiscoverHit`) reports whether it's already in the local library.
+- New `POST /api/v1/discover` (local-api), `veloura discover <query>` (CLI), a GUI Discover screen, and a TUI Discover view (F8) — closing the gap `KNOWN_ISSUES.md` flagged three times, across the Connectors, TUI, and GUI sections.
+- No unified pagination across heterogeneous sources this milestone (local search offset/limit vs. a connector's opaque cursor) — `limit_per_source` caps each source's contribution independently, documented as a known limitation in `KNOWN_ISSUES.md`.
 
 ### TUI Sources view
 
-- New `tui/` Sources view (F7): list, add (local filesystem or RSS/Atom feed), enable/disable, remove, health-check, browse, and import a browsed item into the local library — the terminal counterpart of the GUI Sources screen and `veloura source ...`. Discover stays deliberately out of scope (no unified cross-source endpoint exists in `local-api` yet — see `KNOWN_ISSUES.md`).
+- New `tui/` Sources view (F7): list, add (local filesystem or RSS/Atom feed), enable/disable, remove, health-check, browse, and import a browsed item into the local library — the terminal counterpart of the GUI Sources screen and `veloura source ...`.
 
 ### GUI Sources management screen
 
