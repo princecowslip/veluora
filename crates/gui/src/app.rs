@@ -4,13 +4,20 @@
 
 use std::sync::Arc;
 
-use application::AppContext;
+use application::{AppContext, DownloadService};
 use domain::ItemId;
 use iced::keyboard::{self, Key, Modifiers};
 use iced::widget::{button, column, row};
 use iced::{Element, Subscription, Task, Theme};
+use tokio::sync::Semaphore;
 
 use crate::screens;
+
+/// How often the app re-checks for a download that went stale *while
+/// it's running* — e.g. one that crashed once already, just under the
+/// staleness threshold, before this launch even started. See
+/// `DownloadService::repair_stale_active`.
+const RECOVERY_RECHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -27,6 +34,7 @@ pub enum Screen {
 
 pub struct App {
     ctx: Arc<AppContext>,
+    download_semaphore: Arc<Semaphore>,
     screen: Screen,
     locked: bool,
     theme: application::Theme,
@@ -62,6 +70,7 @@ pub enum Message {
     Downloads(screens::downloads::Message),
     Settings(screens::settings::Message),
     Lock(screens::lock::Message),
+    PeriodicDownloadRepair,
 }
 
 impl App {
@@ -80,8 +89,25 @@ impl App {
                 || application::SettingsService::start_locked(&ctx).unwrap_or(false));
         let theme = application::SettingsService::theme(&ctx).unwrap_or(application::Theme::Dark);
 
+        // Startup download recovery: repair any row a prior instance of
+        // this app left stuck `Active` (see `DownloadService::repair_stale_active`
+        // for why this is time-based rather than an unconditional
+        // sweep — `local-api` can legitimately be running a download
+        // against the same database at the same time), sweep now-truly
+        // -orphaned temp files, and re-launch every `Queued`/crash
+        // -recovered-`Paused` row through the same semaphore-gated path
+        // the Viewer/Downloads screens use.
+        let _ = DownloadService::repair_stale_active(
+            &ctx,
+            DownloadService::DEFAULT_STALE_ACTIVE_THRESHOLD,
+        );
+        let _ = DownloadService::sweep_orphaned_temp_files(&ctx);
+        let cap = application::SettingsService::max_concurrent_downloads(&ctx).unwrap_or(3);
+        let download_semaphore = Arc::new(Semaphore::new(cap.max(1) as usize));
+
         let mut app = App {
-            ctx,
+            ctx: ctx.clone(),
+            download_semaphore: download_semaphore.clone(),
             screen: if onboarding_done {
                 Screen::Home
             } else {
@@ -102,7 +128,8 @@ impl App {
             lock: screens::lock::State::default(),
         };
         app.refresh_active_screen();
-        (app, Task::none())
+        let resume_task = resume_interrupted_downloads(&ctx, &download_semaphore);
+        (app, resume_task)
     }
 
     fn refresh_active_screen(&mut self) {
@@ -144,7 +171,16 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = vec![keyboard::on_key_press(panic_shortcut)];
+        let mut subscriptions = vec![
+            keyboard::on_key_press(panic_shortcut),
+            // Catches a download that goes stale *while this app is
+            // running* — e.g. one `local-api` crashed on just under
+            // the staleness threshold before this launch even started.
+            // Always on, not gated on the Downloads screen being
+            // shown, since a stuck row should still recover in the
+            // background.
+            iced::time::every(RECOVERY_RECHECK_INTERVAL).map(|_| Message::PeriodicDownloadRepair),
+        ];
         // Live progress: only while the Downloads screen is showing
         // *and* something is actually in flight — there's no
         // server-push event stream for downloads (`local-api` has no
@@ -212,6 +248,7 @@ impl App {
                 let (task, effect) = screens::viewer::update(
                     &mut self.viewer,
                     &self.ctx,
+                    &self.download_semaphore,
                     self.encryption_key.as_ref(),
                     msg,
                 );
@@ -230,9 +267,15 @@ impl App {
             Message::Discover(msg) => {
                 screens::discover::update(&mut self.discover, &self.ctx, msg).map(Message::Discover)
             }
-            Message::Downloads(msg) => {
-                screens::downloads::update(&mut self.downloads, &self.ctx, msg)
-                    .map(Message::Downloads)
+            Message::Downloads(msg) => screens::downloads::update(
+                &mut self.downloads,
+                &self.ctx,
+                &self.download_semaphore,
+                msg,
+            )
+            .map(Message::Downloads),
+            Message::PeriodicDownloadRepair => {
+                resume_interrupted_downloads(&self.ctx, &self.download_semaphore)
             }
             Message::Settings(msg) => {
                 let (task, effect) = screens::settings::update(&mut self.settings, &self.ctx, msg);
@@ -291,6 +334,36 @@ impl App {
         .padding(12)
         .into()
     }
+}
+
+/// Repairs any `Active` row left stuck by a prior crash, then
+/// re-launches every `Queued`/crash-recovered-`Paused` row through the
+/// semaphore-gated path, so `App::new` and the periodic
+/// `Message::PeriodicDownloadRepair` tick share one implementation.
+/// User-deliberately-paused rows are left alone — see
+/// `DownloadService::resumable_after_restart`.
+fn resume_interrupted_downloads(
+    ctx: &Arc<AppContext>,
+    download_semaphore: &Arc<Semaphore>,
+) -> Task<Message> {
+    let _ =
+        DownloadService::repair_stale_active(ctx, DownloadService::DEFAULT_STALE_ACTIVE_THRESHOLD);
+    let resumable = DownloadService::resumable_after_restart(ctx).unwrap_or_default();
+    Task::batch(resumable.into_iter().map(|id| {
+        let ctx = ctx.clone();
+        let semaphore = download_semaphore.clone();
+        Task::perform(
+            async move {
+                let _permit = semaphore.acquire_owned().await;
+                Box::new(
+                    DownloadService::run(&ctx, id)
+                        .await
+                        .map_err(|e| e.to_string()),
+                )
+            },
+            |result| Message::Downloads(screens::downloads::Message::RunFinished(result)),
+        )
+    }))
 }
 
 /// The panic shortcut (Ctrl+Shift+L): locks the app immediately.
@@ -416,5 +489,70 @@ mod tests {
         app.lock.password_input = "hunter2".to_string();
         let _ = app.update(Message::Lock(screens::lock::Message::Submit));
         assert!(!app.locked);
+    }
+
+    #[test]
+    fn a_fresh_app_repairs_a_stale_active_row_at_startup() {
+        use connectors::FEED_CONNECTOR_ID;
+        use domain::{DownloadState, RemoteItem, VariantId};
+
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Arc::new(AppContext::open_at(dir.path()).unwrap());
+
+        let source = application::SourceService::add(
+            &ctx,
+            FEED_CONNECTOR_ID,
+            "Startup Repair Feed".to_string(),
+            serde_json::json!({ "url": "https://example.test/feed.xml" }),
+        )
+        .unwrap();
+        let remote_item = RemoteItem {
+            source_item_id: "guid-startup".to_string(),
+            title: "Startup Episode".to_string(),
+            description: None,
+            canonical_url: Some("https://example.test/startup".to_string()),
+            tags: Vec::new(),
+            media_type: domain::MediaType::Story,
+            thumbnail_url: None,
+            download_url: Some("https://example.test/files/startup.mp3".to_string()),
+            download_mime_type: Some("audio/mpeg".to_string()),
+            download_size_bytes: Some(1024),
+        };
+        let item_id =
+            application::SourceService::import_remote_item(&ctx, source.id, remote_item).unwrap();
+        let variant_id = {
+            let conn = ctx.db.connection();
+            let id: String = conn
+                .query_row(
+                    "SELECT id FROM media_variants WHERE item_id = ?1",
+                    rusqlite::params![item_id.to_string()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            VariantId(uuid::Uuid::parse_str(&id).unwrap())
+        };
+        let download = DownloadService::add(&ctx, item_id, variant_id).unwrap();
+
+        // Simulate a prior instance of this app that crashed mid-transfer:
+        // the row is left `active` with a stale heartbeat.
+        let stale = application::time_format::to_rfc3339(
+            time::OffsetDateTime::now_utc() - time::Duration::seconds(999),
+        );
+        ctx.db
+            .connection()
+            .execute(
+                "UPDATE downloads SET state = 'active', updated_at = ?2 WHERE id = ?1",
+                rusqlite::params![download.id.to_string(), stale],
+            )
+            .unwrap();
+
+        let (_app, _task) = App::new(ctx.clone());
+
+        let found = DownloadService::find(&ctx, download.id).unwrap().unwrap();
+        assert_eq!(
+            found.state,
+            DownloadState::Paused,
+            "a stale active row must be repaired to paused at startup"
+        );
     }
 }

@@ -13,6 +13,7 @@ use application::{
 use domain::{ItemId, Progress, VariantId};
 use iced::widget::{button, column, container, image, row, scrollable, text, text_input};
 use iced::{Element, Length, Task};
+use tokio::sync::Semaphore;
 
 #[derive(Default)]
 pub struct State {
@@ -146,6 +147,7 @@ fn load_comic_page(state: &mut State, ctx: &Arc<AppContext>) {
 pub fn update(
     state: &mut State,
     ctx: &Arc<AppContext>,
+    download_semaphore: &Arc<Semaphore>,
     encryption_key: Option<&[u8; 32]>,
     message: Message,
 ) -> (Task<Message>, Option<Effect>) {
@@ -293,10 +295,12 @@ pub fn update(
                 Ok(download) => {
                     state.download_message = Some("Queued — see Downloads.".to_string());
                     let ctx = ctx.clone();
+                    let semaphore = download_semaphore.clone();
                     let id = download.id;
                     (
                         Task::perform(
                             async move {
+                                let _permit = semaphore.acquire_owned().await;
                                 DownloadService::run(&ctx, id)
                                     .await
                                     .map(|_| ())
@@ -442,6 +446,10 @@ mod tests {
         (ctx, dir)
     }
 
+    fn test_semaphore() -> Arc<Semaphore> {
+        Arc::new(Semaphore::new(10))
+    }
+
     fn insert_item(ctx: &AppContext) -> ItemId {
         let item_id = ItemId::new();
         ctx.db
@@ -465,7 +473,13 @@ mod tests {
             ..State::default()
         };
 
-        let (_, effect) = update(&mut state, &ctx, None, Message::SaveNotes);
+        let (_, effect) = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            None,
+            Message::SaveNotes,
+        );
         assert!(effect.is_none());
 
         let stored = UserStateService::get(&ctx, item_id).unwrap();
@@ -483,7 +497,13 @@ mod tests {
             ..State::default()
         };
 
-        let _ = update(&mut state, &ctx, Some(&key), Message::SaveNotes);
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            Some(&key),
+            Message::SaveNotes,
+        );
 
         let stored = UserStateService::get(&ctx, item_id).unwrap();
         let raw = stored.notes.unwrap();
@@ -501,11 +521,23 @@ mod tests {
         };
         assert!(!state.pinned);
 
-        let _ = update(&mut state, &ctx, None, Message::TogglePin);
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            None,
+            Message::TogglePin,
+        );
         assert!(state.pinned);
         assert!(UserStateService::get(&ctx, item_id).unwrap().pinned);
 
-        let _ = update(&mut state, &ctx, None, Message::TogglePin);
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            None,
+            Message::TogglePin,
+        );
         assert!(!state.pinned);
         assert!(!UserStateService::get(&ctx, item_id).unwrap().pinned);
     }
@@ -521,7 +553,13 @@ mod tests {
             ..State::default()
         };
 
-        let _ = update(&mut state, &ctx, None, Message::ClearHistory);
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            None,
+            Message::ClearHistory,
+        );
 
         let stored = UserStateService::get(&ctx, item_id).unwrap();
         assert!(!stored.completed);
@@ -536,9 +574,21 @@ mod tests {
             ..State::default()
         };
 
-        let _ = update(&mut state, &ctx, None, Message::ArmDelete);
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            None,
+            Message::ArmDelete,
+        );
         assert!(state.delete_confirm_armed);
-        let _ = update(&mut state, &ctx, None, Message::CancelDelete);
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            None,
+            Message::CancelDelete,
+        );
         assert!(!state.delete_confirm_armed);
 
         let count: i64 = ctx
@@ -602,7 +652,7 @@ mod tests {
         load(&mut state, &ctx, item_id, None);
         let variant_id = state.downloadable_variant_id.unwrap();
 
-        let (_task, effect) = update(&mut state, &ctx, None, Message::Download);
+        let (_task, effect) = update(&mut state, &ctx, &test_semaphore(), None, Message::Download);
         assert!(effect.is_none());
         assert!(state.download_message.is_some());
 
@@ -620,7 +670,13 @@ mod tests {
             ..State::default()
         };
 
-        let (_, effect) = update(&mut state, &ctx, None, Message::ConfirmDelete);
+        let (_, effect) = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            None,
+            Message::ConfirmDelete,
+        );
         assert!(matches!(effect, Some(Effect::Deleted)));
 
         let count: i64 = ctx

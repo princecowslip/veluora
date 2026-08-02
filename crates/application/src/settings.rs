@@ -145,6 +145,20 @@ impl SettingsService {
     pub fn set_download_naming_template(ctx: &AppContext, template: &str) -> Result<()> {
         Self::set_raw(ctx, "download_naming_template", template)
     }
+
+    /// How many downloads a long-lived process (`local-api`, the GUI)
+    /// may run at once. Defaults to 3. The CLI doesn't consult this —
+    /// it only ever runs one download per invocation.
+    pub fn max_concurrent_downloads(ctx: &AppContext) -> Result<u32> {
+        Ok(Self::get_raw(ctx, "max_concurrent_downloads")?
+            .and_then(|s| s.parse::<u32>().ok())
+            .filter(|&n| n >= 1)
+            .unwrap_or(3))
+    }
+
+    pub fn set_max_concurrent_downloads(ctx: &AppContext, n: u32) -> Result<()> {
+        Self::set_raw(ctx, "max_concurrent_downloads", &n.max(1).to_string())
+    }
 }
 
 fn bool_str(b: bool) -> &'static str {
@@ -239,6 +253,21 @@ mod tests {
             SettingsService::download_naming_template(&ctx).unwrap(),
             "{title}.{ext}"
         );
+    }
+
+    #[test]
+    fn max_concurrent_downloads_defaults_to_three_and_round_trips() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        assert_eq!(SettingsService::max_concurrent_downloads(&ctx).unwrap(), 3);
+        SettingsService::set_max_concurrent_downloads(&ctx, 5).unwrap();
+        assert_eq!(SettingsService::max_concurrent_downloads(&ctx).unwrap(), 5);
+    }
+
+    #[test]
+    fn set_max_concurrent_downloads_clamps_to_at_least_one() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        SettingsService::set_max_concurrent_downloads(&ctx, 0).unwrap();
+        assert_eq!(SettingsService::max_concurrent_downloads(&ctx).unwrap(), 1);
     }
 
     #[test]

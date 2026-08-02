@@ -40,6 +40,14 @@ const SELECT_DOWNLOAD_COLUMNS: &str = "SELECT id, item_id, variant_id, state, de
      completed_at, failure_code, source_id, pinned, temp_path, expected_checksum, \
      checksum_algorithm, etag, last_modified, updated_at FROM downloads";
 
+/// `failure_code` sentinel written by [`DownloadService::repair_stale_active`]
+/// so [`DownloadService::resumable_after_restart`] can tell "crash-recovered,
+/// safe to auto-resume" apart from "user deliberately paused" (whose
+/// `failure_code` is untouched by `pause()`) and "hit a real transfer
+/// error" (whose `failure_code` holds the error text from
+/// `mark_paused_on_error`/`mark_failed`).
+const STALE_ACTIVE_MARKER: &str = "interrupted: process exited before completion";
+
 /// Whether [`DownloadService::add`] would accept a given item/variant —
 /// checked eagerly by `add` (which rejects with the same reasons) and
 /// exposed separately so callers (GUI/CLI/TUI) can gate a "Download"
@@ -427,6 +435,103 @@ impl DownloadService {
             }
         }
         Ok(swept)
+    }
+
+    /// How long an `Active` row's `updated_at` may go untouched before a
+    /// freshly-started long-lived process (`local-api`, the GUI) may
+    /// assume the process that claimed it is dead and safe to repair.
+    /// `run_inner`'s [`Self::update_progress`] rewrites `updated_at` on
+    /// every streamed chunk, so this is a de facto per-chunk heartbeat —
+    /// no lease/PID column is needed. Generous on purpose: `local-api`
+    /// and the GUI can legitimately run at the same time against the
+    /// same database, and a too-short threshold risks one process
+    /// repairing a row a sibling process is still actively driving.
+    pub const DEFAULT_STALE_ACTIVE_THRESHOLD: std::time::Duration =
+        std::time::Duration::from_secs(180);
+
+    /// Startup recovery step for a long-lived process: pushes every
+    /// `Active` row whose `updated_at` is older than `threshold` back to
+    /// `Paused`, tagged with [`STALE_ACTIVE_MARKER`] so
+    /// [`Self::resumable_after_restart`] can auto-resume it without
+    /// also auto-resuming a row the user deliberately paused. Returns
+    /// the repaired ids. Safe to call even if a sibling long-lived
+    /// process owns some genuinely in-flight `Active` rows, as long as
+    /// `threshold` exceeds their per-chunk update cadence.
+    pub fn repair_stale_active(
+        ctx: &AppContext,
+        threshold: std::time::Duration,
+    ) -> Result<Vec<DownloadId>> {
+        Self::repair_stale_active_where(ctx, threshold, None)
+    }
+
+    /// The same repair as [`Self::repair_stale_active`], scoped to one
+    /// row. Used by the CLI, which — unlike `local-api`/the GUI — runs
+    /// many short-lived, ad hoc invocations and must not risk repairing
+    /// a row a still-live sibling process actually owns just because
+    /// this process happens to be starting up.
+    pub fn repair_if_stale(
+        ctx: &AppContext,
+        id: DownloadId,
+        threshold: std::time::Duration,
+    ) -> Result<bool> {
+        Ok(!Self::repair_stale_active_where(ctx, threshold, Some(id))?.is_empty())
+    }
+
+    fn repair_stale_active_where(
+        ctx: &AppContext,
+        threshold: std::time::Duration,
+        only_id: Option<DownloadId>,
+    ) -> Result<Vec<DownloadId>> {
+        let now_str = to_rfc3339(time::OffsetDateTime::now_utc());
+        let conn = ctx.db.connection();
+        let mut stmt = conn
+            .prepare(
+                "UPDATE downloads SET state = 'paused', failure_code = ?1, updated_at = ?2 \
+                 WHERE state = 'active' \
+                   AND (updated_at IS NULL OR (julianday(?2) - julianday(updated_at)) * 86400.0 > ?3) \
+                   AND (?4 IS NULL OR id = ?4) \
+                 RETURNING id",
+            )
+            .map_err(database::DatabaseError::from)?;
+        let threshold_secs = threshold.as_secs_f64();
+        let only_id_str = only_id.map(|id| id.to_string());
+        let ids: Vec<String> = stmt
+            .query_map(
+                params![STALE_ACTIVE_MARKER, now_str, threshold_secs, only_id_str],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(database::DatabaseError::from)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(database::DatabaseError::from)?;
+        Ok(ids
+            .into_iter()
+            .filter_map(|s| uuid::Uuid::parse_str(&s).ok().map(DownloadId))
+            .collect())
+    }
+
+    /// Rows a long-lived process should automatically re-launch after
+    /// startup, once [`Self::repair_stale_active`] has run: `Queued`
+    /// rows (never got a chance to start), and `Paused` rows still
+    /// carrying [`STALE_ACTIVE_MARKER`] (crash-recovered). Deliberately
+    /// excludes rows the user paused themselves, and rows paused/failed
+    /// for a real transfer error — those wait for an explicit resume.
+    pub fn resumable_after_restart(ctx: &AppContext) -> Result<Vec<DownloadId>> {
+        let conn = ctx.db.connection();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM downloads \
+                 WHERE state = 'queued' OR (state = 'paused' AND failure_code = ?1)",
+            )
+            .map_err(database::DatabaseError::from)?;
+        let ids: Vec<String> = stmt
+            .query_map(params![STALE_ACTIVE_MARKER], |row| row.get::<_, String>(0))
+            .map_err(database::DatabaseError::from)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(database::DatabaseError::from)?;
+        Ok(ids
+            .into_iter()
+            .filter_map(|s| uuid::Uuid::parse_str(&s).ok().map(DownloadId))
+            .collect())
     }
 
     // --- internals ---
@@ -1203,6 +1308,45 @@ mod tests {
         (item_id, variant_id)
     }
 
+    /// Same shape as [`imported_downloadable_item`], but with `suffix`
+    /// mixed into every unique field, so a single test can import
+    /// several distinct downloadable items (e.g. one per download in a
+    /// multi-row scenario) without a source/GUID collision.
+    fn imported_downloadable_item_n(ctx: &AppContext, suffix: &str) -> (ItemId, VariantId) {
+        let source = SourceService::add(
+            ctx,
+            FEED_CONNECTOR_ID,
+            format!("My Feed {suffix}"),
+            serde_json::json!({ "url": format!("https://example.test/feed-{suffix}.xml") }),
+        )
+        .unwrap();
+        let remote_item = domain::RemoteItem {
+            source_item_id: format!("guid-{suffix}"),
+            title: format!("Episode {suffix}"),
+            description: None,
+            canonical_url: Some(format!("https://example.test/episode-{suffix}")),
+            tags: Vec::new(),
+            media_type: domain::MediaType::Story,
+            thumbnail_url: None,
+            download_url: Some(format!("https://example.test/files/episode-{suffix}.mp3")),
+            download_mime_type: Some("audio/mpeg".to_string()),
+            download_size_bytes: Some(1024),
+        };
+        let item_id = SourceService::import_remote_item(ctx, source.id, remote_item).unwrap();
+        let variant_id = {
+            let conn = ctx.db.connection();
+            let id: String = conn
+                .query_row(
+                    "SELECT id FROM media_variants WHERE item_id = ?1",
+                    params![item_id.to_string()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            VariantId(uuid::Uuid::parse_str(&id).unwrap())
+        };
+        (item_id, variant_id)
+    }
+
     #[test]
     fn eligibility_is_true_for_a_freshly_imported_downloadable_item() {
         let (ctx, _dir) = test_ctx();
@@ -1555,5 +1699,111 @@ mod tests {
         assert_eq!(swept, 1);
         assert!(!temp_dir.join("orphan.part").exists());
         assert!(temp_dir.join(format!("{}.part", download.id)).exists());
+    }
+
+    /// Directly backdates a row's `updated_at` to simulate a claim made
+    /// `age_secs` ago by a process that then went silent (crashed) — the
+    /// same shape a real kill mid-transfer leaves behind, since
+    /// `update_progress` is the only thing that would have kept
+    /// `updated_at` fresh.
+    fn make_stale_active(ctx: &AppContext, id: DownloadId, age_secs: i64) {
+        let stale = to_rfc3339(time::OffsetDateTime::now_utc() - time::Duration::seconds(age_secs));
+        ctx.db
+            .connection()
+            .execute(
+                "UPDATE downloads SET state = 'active', updated_at = ?2 WHERE id = ?1",
+                params![id.to_string(), stale],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn repair_stale_active_moves_an_old_stuck_active_row_back_to_paused_with_the_marker() {
+        let (ctx, _dir) = test_ctx();
+        let (item_id, variant_id) = imported_downloadable_item(&ctx);
+        let download = DownloadService::add(&ctx, item_id, variant_id).unwrap();
+        make_stale_active(&ctx, download.id, 999);
+
+        let repaired =
+            DownloadService::repair_stale_active(&ctx, std::time::Duration::from_secs(180))
+                .unwrap();
+        assert_eq!(repaired, vec![download.id]);
+
+        let found = DownloadService::find(&ctx, download.id).unwrap().unwrap();
+        assert_eq!(found.state, DownloadState::Paused);
+        assert_eq!(found.failure_code.as_deref(), Some(STALE_ACTIVE_MARKER));
+    }
+
+    #[test]
+    fn repair_stale_active_leaves_a_recently_active_row_alone() {
+        let (ctx, _dir) = test_ctx();
+        let (item_id, variant_id) = imported_downloadable_item(&ctx);
+        let download = DownloadService::add(&ctx, item_id, variant_id).unwrap();
+        make_stale_active(&ctx, download.id, 5);
+
+        let repaired =
+            DownloadService::repair_stale_active(&ctx, std::time::Duration::from_secs(180))
+                .unwrap();
+        assert!(
+            repaired.is_empty(),
+            "a row updated 5s ago must not be treated as owned by a dead process"
+        );
+
+        let found = DownloadService::find(&ctx, download.id).unwrap().unwrap();
+        assert_eq!(
+            found.state,
+            DownloadState::Active,
+            "must be left alone for the process that's still driving it"
+        );
+    }
+
+    #[test]
+    fn repair_if_stale_only_touches_the_targeted_row() {
+        let (ctx, _dir) = test_ctx();
+        let (item_id_a, variant_id_a) = imported_downloadable_item_n(&ctx, "a");
+        let a = DownloadService::add(&ctx, item_id_a, variant_id_a).unwrap();
+        make_stale_active(&ctx, a.id, 999);
+
+        let (item_id_b, variant_id_b) = imported_downloadable_item_n(&ctx, "b");
+        let b = DownloadService::add(&ctx, item_id_b, variant_id_b).unwrap();
+        make_stale_active(&ctx, b.id, 999);
+
+        let repaired =
+            DownloadService::repair_if_stale(&ctx, a.id, std::time::Duration::from_secs(180))
+                .unwrap();
+        assert!(repaired);
+        assert_eq!(
+            DownloadService::find(&ctx, a.id).unwrap().unwrap().state,
+            DownloadState::Paused
+        );
+        assert_eq!(
+            DownloadService::find(&ctx, b.id).unwrap().unwrap().state,
+            DownloadState::Active,
+            "a sibling process's genuinely in-flight row must not be touched"
+        );
+    }
+
+    #[test]
+    fn resumable_after_restart_includes_queued_and_marker_paused_but_excludes_user_paused() {
+        let (ctx, _dir) = test_ctx();
+
+        let (item_id, variant_id) = imported_downloadable_item_n(&ctx, "queued");
+        let queued = DownloadService::add(&ctx, item_id, variant_id).unwrap();
+
+        let (item_id, variant_id) = imported_downloadable_item_n(&ctx, "crashed");
+        let crash_recovered = DownloadService::add(&ctx, item_id, variant_id).unwrap();
+        make_stale_active(&ctx, crash_recovered.id, 999);
+        DownloadService::repair_stale_active(&ctx, std::time::Duration::from_secs(180)).unwrap();
+
+        let (item_id, variant_id) = imported_downloadable_item_n(&ctx, "paused");
+        let user_paused = DownloadService::add(&ctx, item_id, variant_id).unwrap();
+        DownloadService::pause(&ctx, user_paused.id).unwrap();
+
+        let mut resumable = DownloadService::resumable_after_restart(&ctx).unwrap();
+        resumable.sort_by_key(|id| id.to_string());
+        let mut expected = vec![queued.id, crash_recovered.id];
+        expected.sort_by_key(|id| id.to_string());
+        assert_eq!(resumable, expected);
+        assert!(!resumable.contains(&user_paused.id));
     }
 }
