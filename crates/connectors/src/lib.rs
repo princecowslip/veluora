@@ -8,10 +8,12 @@
 pub mod booru;
 pub mod feed;
 mod http_util;
+pub mod opds;
 pub mod registry;
 pub mod trait_def;
 
 pub use booru::{BooruConnector, BOORU_CONNECTOR_ID};
 pub use feed::{FeedConnector, FEED_CONNECTOR_ID};
+pub use opds::{OpdsConnector, OPDS_CONNECTOR_ID};
 pub use registry::ConnectorRegistry;
 pub use trait_def::Connector;

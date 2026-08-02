@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Fantasy Series</title>
+  <id>urn:uuid:fantasy-series-feed</id>
+  <updated>2026-01-01T00:00:00Z</updated>
+  <link rel="self" href="/series/1" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  <entry>
+    <title>Volume One</title>
+    <id>urn:uuid:fantasy-volume-1</id>
+    <updated>2026-01-01T00:00:00Z</updated>
+    <content type="text">The first volume.</content>
+    <link rel="alternate" href="/series/1/volume-1"/>
+    <link rel="http://opds-spec.org/acquisition" href="/series/1/volume-1.epub" type="application/epub+zip" length="204800"/>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/series/1/volume-1/cover.jpg" type="image/jpeg"/>
+    <category term="fantasy"/>
+    <category term="adventure"/>
+  </entry>
+  <entry>
+    <title>Volume Two</title>
+    <id>urn:uuid:fantasy-volume-2</id>
+    <updated>2026-01-01T00:00:00Z</updated>
+    <link rel="http://opds-spec.org/acquisition/open-access" href="/series/1/volume-2.cbz" type="application/vnd.comicbook+zip" length="512000"/>
+  </entry>
+</feed>

@@ -8,28 +8,31 @@ use std::fmt;
 use std::sync::Arc;
 
 use application::{AppContext, SourceService, LOCAL_FILESYSTEM_CONNECTOR_ID};
-use connectors::{BOORU_CONNECTOR_ID, FEED_CONNECTOR_ID};
+use connectors::{BOORU_CONNECTOR_ID, FEED_CONNECTOR_ID, OPDS_CONNECTOR_ID};
 use domain::{ConnectorId, ConnectorResult, HealthState, RemoteItem, Source, SourceId};
 use iced::widget::{button, checkbox, column, container, pick_list, row, text, text_input};
 use iced::{Element, Task};
 
-/// Three connectors exist (`LocalFilesystemConnector`, `FeedConnector`,
-/// `BooruConnector` — see `application::source`/`connectors::feed`/
-/// `connectors::booru`), so a small fixed choice is honest and
-/// sufficient; there's no dynamic connector registry to list from yet.
+/// Four connectors exist (`LocalFilesystemConnector`, `FeedConnector`,
+/// `BooruConnector`, `OpdsConnector` — see `application::source`/
+/// `connectors::feed`/`connectors::booru`/`connectors::opds`), so a
+/// small fixed choice is honest and sufficient; there's no dynamic
+/// connector registry to list from yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConnectorChoice {
     #[default]
     LocalFilesystem,
     Feed,
     Booru,
+    Opds,
 }
 
 impl ConnectorChoice {
-    const ALL: [ConnectorChoice; 3] = [
+    const ALL: [ConnectorChoice; 4] = [
         ConnectorChoice::LocalFilesystem,
         ConnectorChoice::Feed,
         ConnectorChoice::Booru,
+        ConnectorChoice::Opds,
     ];
 
     fn connector_id(self) -> ConnectorId {
@@ -37,6 +40,7 @@ impl ConnectorChoice {
             ConnectorChoice::LocalFilesystem => LOCAL_FILESYSTEM_CONNECTOR_ID,
             ConnectorChoice::Feed => FEED_CONNECTOR_ID,
             ConnectorChoice::Booru => BOORU_CONNECTOR_ID,
+            ConnectorChoice::Opds => OPDS_CONNECTOR_ID,
         }
     }
 }
@@ -47,6 +51,7 @@ impl fmt::Display for ConnectorChoice {
             ConnectorChoice::LocalFilesystem => "Local filesystem",
             ConnectorChoice::Feed => "RSS/Atom feed",
             ConnectorChoice::Booru => "Booru (Danbooru/Gelbooru)",
+            ConnectorChoice::Opds => "OPDS catalog",
         })
     }
 }
@@ -88,6 +93,8 @@ fn connector_label(id: ConnectorId) -> &'static str {
         "RSS/Atom feed"
     } else if id == BOORU_CONNECTOR_ID {
         "Booru (Danbooru/Gelbooru)"
+    } else if id == OPDS_CONNECTOR_ID {
+        "OPDS catalog"
     } else {
         "Unknown connector"
     }
@@ -114,6 +121,9 @@ pub struct State {
     pub new_booru_flavor: BooruFlavorChoice,
     pub new_booru_base_url: String,
     pub new_booru_api_key: String,
+    pub new_opds_url: String,
+    pub new_opds_username: String,
+    pub new_opds_password: String,
 
     /// The source a browse is in flight for, or was last shown for —
     /// needed so an Import button knows which source a `RemoteItem`
@@ -132,6 +142,9 @@ pub enum Message {
     BooruFlavorChanged(BooruFlavorChoice),
     BooruBaseUrlChanged(String),
     BooruApiKeyChanged(String),
+    OpdsUrlChanged(String),
+    OpdsUsernameChanged(String),
+    OpdsPasswordChanged(String),
     ConfirmAdd,
 
     Enable(SourceId),
@@ -161,6 +174,9 @@ pub fn update(state: &mut State, ctx: &Arc<AppContext>, message: Message) -> Tas
             state.new_booru_flavor = BooruFlavorChoice::default();
             state.new_booru_base_url.clear();
             state.new_booru_api_key.clear();
+            state.new_opds_url.clear();
+            state.new_opds_username.clear();
+            state.new_opds_password.clear();
         }
         Message::CancelAdding => {
             state.adding = false;
@@ -183,6 +199,15 @@ pub fn update(state: &mut State, ctx: &Arc<AppContext>, message: Message) -> Tas
         Message::BooruApiKeyChanged(value) => {
             state.new_booru_api_key = value;
         }
+        Message::OpdsUrlChanged(value) => {
+            state.new_opds_url = value;
+        }
+        Message::OpdsUsernameChanged(value) => {
+            state.new_opds_username = value;
+        }
+        Message::OpdsPasswordChanged(value) => {
+            state.new_opds_password = value;
+        }
         Message::ConfirmAdd => {
             let connector_id = state.new_connector.connector_id();
             let configuration_json = match state.new_connector {
@@ -194,6 +219,15 @@ pub fn update(state: &mut State, ctx: &Arc<AppContext>, message: Message) -> Tas
                         "flavor": state.new_booru_flavor.as_config_str(),
                         "base_url": state.new_booru_base_url.trim(),
                         "api_key": if api_key.is_empty() { None } else { Some(api_key) },
+                    })
+                }
+                ConnectorChoice::Opds => {
+                    let username = state.new_opds_username.trim();
+                    let password = state.new_opds_password.trim();
+                    serde_json::json!({
+                        "url": state.new_opds_url.trim(),
+                        "username": if username.is_empty() { None } else { Some(username) },
+                        "password": if password.is_empty() { None } else { Some(password) },
                     })
                 }
             };
@@ -359,6 +393,22 @@ fn add_form(state: &State) -> Element<'_, Message> {
         );
     }
 
+    if state.new_connector == ConnectorChoice::Opds {
+        form = form.push(
+            text_input("Catalog URL (https://...)", &state.new_opds_url)
+                .on_input(Message::OpdsUrlChanged),
+        );
+        form = form.push(
+            text_input("Username (optional)", &state.new_opds_username)
+                .on_input(Message::OpdsUsernameChanged),
+        );
+        form = form.push(
+            text_input("Password (optional)", &state.new_opds_password)
+                .secure(true)
+                .on_input(Message::OpdsPasswordChanged),
+        );
+    }
+
     form = form.push(
         row![
             button("Add").on_press(Message::ConfirmAdd),
@@ -473,6 +523,30 @@ mod tests {
             "https://booru.example.test"
         );
         assert!(state.sources[0].configuration_json["api_key"].is_null());
+    }
+
+    #[test]
+    fn confirm_add_with_the_opds_connector_stores_url_and_optional_credentials() {
+        let (ctx, _dir) = test_ctx();
+        let mut state = State {
+            adding: true,
+            new_connector: ConnectorChoice::Opds,
+            new_display_name: "My OPDS Catalog".to_string(),
+            new_opds_url: "https://opds.example.test/catalog".to_string(),
+            new_opds_username: "reader".to_string(),
+            ..State::default()
+        };
+
+        let _ = update(&mut state, &ctx, Message::ConfirmAdd);
+
+        assert_eq!(state.sources.len(), 1);
+        assert_eq!(state.sources[0].connector_id, OPDS_CONNECTOR_ID);
+        assert_eq!(
+            state.sources[0].configuration_json["url"],
+            "https://opds.example.test/catalog"
+        );
+        assert_eq!(state.sources[0].configuration_json["username"], "reader");
+        assert!(state.sources[0].configuration_json["password"].is_null());
     }
 
     #[test]

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Test OPDS Catalog (page 2)</title>
+  <id>urn:uuid:test-opds-root-page2</id>
+  <updated>2026-01-01T00:00:00Z</updated>
+  <link rel="self" href="/catalog/page2" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <entry>
+    <title>Sci-Fi Series</title>
+    <id>urn:uuid:scifi-series</id>
+    <updated>2026-01-01T00:00:00Z</updated>
+    <link rel="subsection" href="/series/2" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  </entry>
+</feed>
