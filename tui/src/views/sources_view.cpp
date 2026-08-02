@@ -7,19 +7,22 @@ namespace veloura {
 namespace {
 
 // Matches `application::LOCAL_FILESYSTEM_CONNECTOR_ID` /
-// `connectors::FEED_CONNECTOR_ID` / `connectors::BOORU_CONNECTOR_ID` —
-// the three connectors that exist (see
+// `connectors::FEED_CONNECTOR_ID` / `connectors::BOORU_CONNECTOR_ID` /
+// `connectors::OPDS_CONNECTOR_ID` — the four connectors that exist (see
 // `crates/application/src/source.rs`, `crates/connectors/src/feed.rs`,
-// `crates/connectors/src/booru.rs`). Fixed values, not looked up from
-// any "list connectors" endpoint, since none exists.
+// `crates/connectors/src/booru.rs`, `crates/connectors/src/opds.rs`).
+// Fixed values, not looked up from any "list connectors" endpoint,
+// since none exists.
 constexpr const char* kLocalFilesystemConnectorId = "00000000-0000-0000-0000-000000000000";
 constexpr const char* kFeedConnectorId = "00000000-0000-0000-0000-000000000001";
 constexpr const char* kBooruConnectorId = "00000000-0000-0000-0000-000000000002";
+constexpr const char* kOpdsConnectorId = "00000000-0000-0000-0000-000000000003";
 
 std::string connector_label(const std::string& connector_id) {
   if (connector_id == kLocalFilesystemConnectorId) return "Local filesystem";
   if (connector_id == kFeedConnectorId) return "RSS/Atom feed";
   if (connector_id == kBooruConnectorId) return "Booru (Danbooru/Gelbooru)";
+  if (connector_id == kOpdsConnectorId) return "OPDS catalog";
   return "Unknown connector";
 }
 
@@ -44,6 +47,9 @@ void SourcesView::reset_add_form() {
   add_booru_flavor_.clear();
   add_booru_base_url_input_.clear();
   add_booru_api_key_input_.clear();
+  add_opds_url_input_.clear();
+  add_opds_username_input_.clear();
+  add_opds_password_input_.clear();
   add_display_name_input_.clear();
 }
 
@@ -88,7 +94,8 @@ void SourcesView::render_add_form(ncplane* plane, unsigned rows, unsigned cols) 
   print_plain(plane, 0, 0, "Add source");
   switch (add_step_) {
     case AddStep::ChooseConnector:
-      print_plain(plane, 2, 0, "l: local filesystem   f: RSS/Atom feed   d: booru   Esc: cancel");
+      print_plain(plane, 2, 0,
+                  "l: local filesystem   f: RSS/Atom feed   d: booru   o: OPDS catalog   Esc: cancel");
       break;
     case AddStep::FeedUrl:
       print_plain(plane, 2, 0, "Feed URL: " + add_feed_url_input_ + "_");
@@ -105,6 +112,20 @@ void SourcesView::render_add_form(ncplane* plane, unsigned rows, unsigned cols) 
       print_plain(plane, 2, 0, "API key (optional): " + add_booru_api_key_input_ + "_");
       print_plain(plane, 4, 0, "Enter to continue, Esc to cancel");
       break;
+    case AddStep::OpdsUrl:
+      print_plain(plane, 2, 0, "Catalog URL: " + add_opds_url_input_ + "_");
+      print_plain(plane, 4, 0, "Enter to continue, Esc to cancel");
+      break;
+    case AddStep::OpdsUsername:
+      print_plain(plane, 2, 0, "Username (optional): " + add_opds_username_input_ + "_");
+      print_plain(plane, 4, 0, "Enter to continue, Esc to cancel");
+      break;
+    case AddStep::OpdsPassword: {
+      std::string masked(add_opds_password_input_.size(), '*');
+      print_plain(plane, 2, 0, "Password (optional): " + masked + "_");
+      print_plain(plane, 4, 0, "Enter to continue, Esc to cancel");
+      break;
+    }
     case AddStep::DisplayName:
       print_plain(plane, 2, 0, "Display name: " + add_display_name_input_ + "_");
       print_plain(plane, 4, 0, "Enter to add, Esc to cancel");
@@ -232,6 +253,11 @@ KeyOutcome SourcesView::handle_add_form_key(const ncinput& input, ApiClient& api
         add_step_ = AddStep::BooruFlavor;
         return KeyOutcome::handled();
       }
+      if (input.id == 'o') {
+        add_connector_id_ = kOpdsConnectorId;
+        add_step_ = AddStep::OpdsUrl;
+        return KeyOutcome::handled();
+      }
       return KeyOutcome::handled();
 
     case AddStep::FeedUrl:
@@ -292,6 +318,51 @@ KeyOutcome SourcesView::handle_add_form_key(const ncinput& input, ApiClient& api
       }
       return KeyOutcome::handled();
 
+    case AddStep::OpdsUrl:
+      if (input.id == NCKEY_ENTER) {
+        add_step_ = AddStep::OpdsUsername;
+        return KeyOutcome::handled();
+      }
+      if (input.id == NCKEY_BACKSPACE || input.id == 127) {
+        if (!add_opds_url_input_.empty()) add_opds_url_input_.pop_back();
+        return KeyOutcome::handled();
+      }
+      if (is_text_char(input.id)) {
+        add_opds_url_input_.push_back(static_cast<char>(input.id));
+        return KeyOutcome::handled();
+      }
+      return KeyOutcome::handled();
+
+    case AddStep::OpdsUsername:
+      if (input.id == NCKEY_ENTER) {
+        add_step_ = AddStep::OpdsPassword;
+        return KeyOutcome::handled();
+      }
+      if (input.id == NCKEY_BACKSPACE || input.id == 127) {
+        if (!add_opds_username_input_.empty()) add_opds_username_input_.pop_back();
+        return KeyOutcome::handled();
+      }
+      if (is_text_char(input.id)) {
+        add_opds_username_input_.push_back(static_cast<char>(input.id));
+        return KeyOutcome::handled();
+      }
+      return KeyOutcome::handled();
+
+    case AddStep::OpdsPassword:
+      if (input.id == NCKEY_ENTER) {
+        add_step_ = AddStep::DisplayName;
+        return KeyOutcome::handled();
+      }
+      if (input.id == NCKEY_BACKSPACE || input.id == 127) {
+        if (!add_opds_password_input_.empty()) add_opds_password_input_.pop_back();
+        return KeyOutcome::handled();
+      }
+      if (is_text_char(input.id)) {
+        add_opds_password_input_.push_back(static_cast<char>(input.id));
+        return KeyOutcome::handled();
+      }
+      return KeyOutcome::handled();
+
     case AddStep::DisplayName:
       if (input.id == NCKEY_ENTER) {
         nlohmann::json configuration_json = nlohmann::json::object();
@@ -301,6 +372,14 @@ KeyOutcome SourcesView::handle_add_form_key(const ncinput& input, ApiClient& api
           configuration_json = {{"flavor", add_booru_flavor_}, {"base_url", add_booru_base_url_input_}};
           if (!add_booru_api_key_input_.empty()) {
             configuration_json["api_key"] = add_booru_api_key_input_;
+          }
+        } else if (add_connector_id_ == kOpdsConnectorId) {
+          configuration_json = {{"url", add_opds_url_input_}};
+          if (!add_opds_username_input_.empty()) {
+            configuration_json["username"] = add_opds_username_input_;
+          }
+          if (!add_opds_password_input_.empty()) {
+            configuration_json["password"] = add_opds_password_input_;
           }
         }
         auto response = api.post("/api/v1/sources", {{"connector_id", add_connector_id_},

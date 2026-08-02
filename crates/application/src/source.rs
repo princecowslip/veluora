@@ -10,8 +10,8 @@
 use std::sync::Arc;
 
 use connectors::{
-    BooruConnector, Connector, ConnectorRegistry, FeedConnector, BOORU_CONNECTOR_ID,
-    FEED_CONNECTOR_ID,
+    BooruConnector, Connector, ConnectorRegistry, FeedConnector, OpdsConnector, BOORU_CONNECTOR_ID,
+    FEED_CONNECTOR_ID, OPDS_CONNECTOR_ID,
 };
 use domain::{
     AuthMethod, Clause, ConnectorCapabilities, ConnectorId, ConnectorResult, HealthState, ItemId,
@@ -386,6 +386,7 @@ impl SourceService {
         let mut registry = ConnectorRegistry::new();
         registry.register(FEED_CONNECTOR_ID, Arc::new(FeedConnector::new()));
         registry.register(BOORU_CONNECTOR_ID, Arc::new(BooruConnector::new()));
+        registry.register(OPDS_CONNECTOR_ID, Arc::new(OpdsConnector::new()));
         registry.register(
             LOCAL_FILESYSTEM_CONNECTOR_ID,
             Arc::new(LocalFilesystemConnector),
@@ -638,6 +639,23 @@ mod tests {
         let (_, connector) = SourceService::connector_for(&ctx, source.id).unwrap();
         assert_eq!(connector.identify(), "Booru (Danbooru/Gelbooru-compatible)");
         assert!(connector.capabilities().search);
+    }
+
+    #[test]
+    fn an_opds_source_resolves_to_the_registered_opds_connector() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        let source = SourceService::add(
+            &ctx,
+            connectors::OPDS_CONNECTOR_ID,
+            "My OPDS Catalog".to_string(),
+            serde_json::json!({ "url": "https://example.test/opds" }),
+        )
+        .unwrap();
+
+        let (_, connector) = SourceService::connector_for(&ctx, source.id).unwrap();
+        assert_eq!(connector.identify(), "OPDS catalog");
+        assert!(connector.capabilities().browse);
+        assert!(!connector.capabilities().search);
     }
 
     #[tokio::test]

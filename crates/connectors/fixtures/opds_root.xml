@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Test OPDS Catalog</title>
+  <id>urn:uuid:test-opds-root</id>
+  <updated>2026-01-01T00:00:00Z</updated>
+  <link rel="self" href="/catalog" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <link rel="next" href="/catalog/page2" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <entry>
+    <title>Fantasy Series</title>
+    <id>urn:uuid:fantasy-series</id>
+    <updated>2026-01-01T00:00:00Z</updated>
+    <content type="text">A browsable sub-catalog of volumes.</content>
+    <link rel="subsection" href="/series/1" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+    <link rel="http://opds-spec.org/image/thumbnail" href="/series/1/cover.jpg" type="image/jpeg"/>
+  </entry>
+</feed>

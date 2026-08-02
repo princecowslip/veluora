@@ -10,9 +10,9 @@
 namespace veloura {
 
 // Configured connector-backed sources: list, add (local filesystem,
-// RSS/Atom feed, or a Danbooru/Gelbooru-compatible booru — the three
-// connectors that exist), enable/disable, remove, health-check,
-// browse, and import a browsed item into the library — via
+// RSS/Atom feed, a Danbooru/Gelbooru-compatible booru, or an OPDS
+// catalog — the four connectors that exist), enable/disable, remove,
+// health-check, browse, and import a browsed item into the library — via
 // `/api/v1/sources*`. The TUI counterpart of the GUI Sources screen
 // and `veloura source ...`. Browsing here is still per-source, one at
 // a time; for a unified cross-source query see `DiscoverView`
@@ -31,6 +31,9 @@ class SourcesView : public View {
     BooruFlavor,
     BooruBaseUrl,
     BooruApiKey,
+    OpdsUrl,
+    OpdsUsername,
+    OpdsPassword,
     DisplayName
   };
 
@@ -55,6 +58,9 @@ class SourcesView : public View {
   std::string add_booru_flavor_;
   std::string add_booru_base_url_input_;
   std::string add_booru_api_key_input_;
+  std::string add_opds_url_input_;
+  std::string add_opds_username_input_;
+  std::string add_opds_password_input_;
   std::string add_display_name_input_;
 
   bool browsing_ = false;
