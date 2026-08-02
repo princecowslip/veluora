@@ -8,29 +8,35 @@ use std::fmt;
 use std::sync::Arc;
 
 use application::{AppContext, SourceService, LOCAL_FILESYSTEM_CONNECTOR_ID};
-use connectors::FEED_CONNECTOR_ID;
+use connectors::{BOORU_CONNECTOR_ID, FEED_CONNECTOR_ID};
 use domain::{ConnectorId, ConnectorResult, HealthState, RemoteItem, Source, SourceId};
 use iced::widget::{button, checkbox, column, container, pick_list, row, text, text_input};
 use iced::{Element, Task};
 
-/// Only two connectors exist (`LocalFilesystemConnector`, `FeedConnector`
-/// — see `application::source`/`connectors::feed`), so a small fixed
-/// choice is honest and sufficient; there's no dynamic connector
-/// registry to list from yet.
+/// Three connectors exist (`LocalFilesystemConnector`, `FeedConnector`,
+/// `BooruConnector` — see `application::source`/`connectors::feed`/
+/// `connectors::booru`), so a small fixed choice is honest and
+/// sufficient; there's no dynamic connector registry to list from yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConnectorChoice {
     #[default]
     LocalFilesystem,
     Feed,
+    Booru,
 }
 
 impl ConnectorChoice {
-    const ALL: [ConnectorChoice; 2] = [ConnectorChoice::LocalFilesystem, ConnectorChoice::Feed];
+    const ALL: [ConnectorChoice; 3] = [
+        ConnectorChoice::LocalFilesystem,
+        ConnectorChoice::Feed,
+        ConnectorChoice::Booru,
+    ];
 
     fn connector_id(self) -> ConnectorId {
         match self {
             ConnectorChoice::LocalFilesystem => LOCAL_FILESYSTEM_CONNECTOR_ID,
             ConnectorChoice::Feed => FEED_CONNECTOR_ID,
+            ConnectorChoice::Booru => BOORU_CONNECTOR_ID,
         }
     }
 }
@@ -40,6 +46,37 @@ impl fmt::Display for ConnectorChoice {
         f.write_str(match self {
             ConnectorChoice::LocalFilesystem => "Local filesystem",
             ConnectorChoice::Feed => "RSS/Atom feed",
+            ConnectorChoice::Booru => "Booru (Danbooru/Gelbooru)",
+        })
+    }
+}
+
+/// Which booru API shape a `ConnectorChoice::Booru` source speaks —
+/// stored in `configuration_json["flavor"]` as `"danbooru"`/`"gelbooru"`,
+/// matching `connectors::booru`'s config parsing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BooruFlavorChoice {
+    #[default]
+    Danbooru,
+    Gelbooru,
+}
+
+impl BooruFlavorChoice {
+    const ALL: [BooruFlavorChoice; 2] = [BooruFlavorChoice::Danbooru, BooruFlavorChoice::Gelbooru];
+
+    fn as_config_str(self) -> &'static str {
+        match self {
+            BooruFlavorChoice::Danbooru => "danbooru",
+            BooruFlavorChoice::Gelbooru => "gelbooru",
+        }
+    }
+}
+
+impl fmt::Display for BooruFlavorChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            BooruFlavorChoice::Danbooru => "Danbooru-compatible",
+            BooruFlavorChoice::Gelbooru => "Gelbooru-compatible",
         })
     }
 }
@@ -49,6 +86,8 @@ fn connector_label(id: ConnectorId) -> &'static str {
         "Local filesystem"
     } else if id == FEED_CONNECTOR_ID {
         "RSS/Atom feed"
+    } else if id == BOORU_CONNECTOR_ID {
+        "Booru (Danbooru/Gelbooru)"
     } else {
         "Unknown connector"
     }
@@ -72,6 +111,9 @@ pub struct State {
     pub new_connector: ConnectorChoice,
     pub new_display_name: String,
     pub new_feed_url: String,
+    pub new_booru_flavor: BooruFlavorChoice,
+    pub new_booru_base_url: String,
+    pub new_booru_api_key: String,
 
     /// The source a browse is in flight for, or was last shown for —
     /// needed so an Import button knows which source a `RemoteItem`
@@ -87,6 +129,9 @@ pub enum Message {
     ConnectorChoiceChanged(ConnectorChoice),
     DisplayNameChanged(String),
     FeedUrlChanged(String),
+    BooruFlavorChanged(BooruFlavorChoice),
+    BooruBaseUrlChanged(String),
+    BooruApiKeyChanged(String),
     ConfirmAdd,
 
     Enable(SourceId),
@@ -113,6 +158,9 @@ pub fn update(state: &mut State, ctx: &Arc<AppContext>, message: Message) -> Tas
             state.new_connector = ConnectorChoice::default();
             state.new_display_name.clear();
             state.new_feed_url.clear();
+            state.new_booru_flavor = BooruFlavorChoice::default();
+            state.new_booru_base_url.clear();
+            state.new_booru_api_key.clear();
         }
         Message::CancelAdding => {
             state.adding = false;
@@ -126,11 +174,28 @@ pub fn update(state: &mut State, ctx: &Arc<AppContext>, message: Message) -> Tas
         Message::FeedUrlChanged(value) => {
             state.new_feed_url = value;
         }
+        Message::BooruFlavorChanged(flavor) => {
+            state.new_booru_flavor = flavor;
+        }
+        Message::BooruBaseUrlChanged(value) => {
+            state.new_booru_base_url = value;
+        }
+        Message::BooruApiKeyChanged(value) => {
+            state.new_booru_api_key = value;
+        }
         Message::ConfirmAdd => {
             let connector_id = state.new_connector.connector_id();
             let configuration_json = match state.new_connector {
                 ConnectorChoice::LocalFilesystem => serde_json::json!({}),
                 ConnectorChoice::Feed => serde_json::json!({ "url": state.new_feed_url.trim() }),
+                ConnectorChoice::Booru => {
+                    let api_key = state.new_booru_api_key.trim();
+                    serde_json::json!({
+                        "flavor": state.new_booru_flavor.as_config_str(),
+                        "base_url": state.new_booru_base_url.trim(),
+                        "api_key": if api_key.is_empty() { None } else { Some(api_key) },
+                    })
+                }
             };
             match SourceService::add(
                 ctx,
@@ -278,6 +343,22 @@ fn add_form(state: &State) -> Element<'_, Message> {
         );
     }
 
+    if state.new_connector == ConnectorChoice::Booru {
+        form = form.push(pick_list(
+            BooruFlavorChoice::ALL,
+            Some(state.new_booru_flavor),
+            Message::BooruFlavorChanged,
+        ));
+        form = form.push(
+            text_input("Base URL (https://...)", &state.new_booru_base_url)
+                .on_input(Message::BooruBaseUrlChanged),
+        );
+        form = form.push(
+            text_input("API key (optional)", &state.new_booru_api_key)
+                .on_input(Message::BooruApiKeyChanged),
+        );
+    }
+
     form = form.push(
         row![
             button("Add").on_press(Message::ConfirmAdd),
@@ -368,6 +449,30 @@ mod tests {
             state.sources[0].configuration_json["url"],
             "https://example.test/feed.xml"
         );
+    }
+
+    #[test]
+    fn confirm_add_with_the_booru_connector_stores_flavor_and_base_url_in_configuration() {
+        let (ctx, _dir) = test_ctx();
+        let mut state = State {
+            adding: true,
+            new_connector: ConnectorChoice::Booru,
+            new_display_name: "My Booru".to_string(),
+            new_booru_flavor: BooruFlavorChoice::Gelbooru,
+            new_booru_base_url: "https://booru.example.test".to_string(),
+            ..State::default()
+        };
+
+        let _ = update(&mut state, &ctx, Message::ConfirmAdd);
+
+        assert_eq!(state.sources.len(), 1);
+        assert_eq!(state.sources[0].connector_id, BOORU_CONNECTOR_ID);
+        assert_eq!(state.sources[0].configuration_json["flavor"], "gelbooru");
+        assert_eq!(
+            state.sources[0].configuration_json["base_url"],
+            "https://booru.example.test"
+        );
+        assert!(state.sources[0].configuration_json["api_key"].is_null());
     }
 
     #[test]

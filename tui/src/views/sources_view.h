@@ -9,14 +9,14 @@
 
 namespace veloura {
 
-// Configured connector-backed sources: list, add (local filesystem or
-// RSS/Atom feed — the only two connectors that exist), enable/disable,
-// remove, health-check, browse, and import a browsed item into the
-// library — via `/api/v1/sources*`. The TUI counterpart of the GUI
-// Sources screen and `veloura source ...`. Browsing here is still
-// per-source, one at a time; for a unified cross-source query see
-// `DiscoverView` (`discover_view.h`, F8), which is backed by
-// `POST /api/v1/discover`.
+// Configured connector-backed sources: list, add (local filesystem,
+// RSS/Atom feed, or a Danbooru/Gelbooru-compatible booru — the three
+// connectors that exist), enable/disable, remove, health-check,
+// browse, and import a browsed item into the library — via
+// `/api/v1/sources*`. The TUI counterpart of the GUI Sources screen
+// and `veloura source ...`. Browsing here is still per-source, one at
+// a time; for a unified cross-source query see `DiscoverView`
+// (`discover_view.h`, F8), which is backed by `POST /api/v1/discover`.
 class SourcesView : public View {
  public:
   const char* title() const override { return "Sources"; }
@@ -25,7 +25,14 @@ class SourcesView : public View {
   KeyOutcome handle_key(const ncinput& input, ApiClient& api) override;
 
  private:
-  enum class AddStep { ChooseConnector, FeedUrl, DisplayName };
+  enum class AddStep {
+    ChooseConnector,
+    FeedUrl,
+    BooruFlavor,
+    BooruBaseUrl,
+    BooruApiKey,
+    DisplayName
+  };
 
   void render_list(ncplane* plane, unsigned rows, unsigned cols);
   void render_add_form(ncplane* plane, unsigned rows, unsigned cols);
@@ -45,6 +52,9 @@ class SourcesView : public View {
   AddStep add_step_ = AddStep::ChooseConnector;
   std::string add_connector_id_;
   std::string add_feed_url_input_;
+  std::string add_booru_flavor_;
+  std::string add_booru_base_url_input_;
+  std::string add_booru_api_key_input_;
   std::string add_display_name_input_;
 
   bool browsing_ = false;

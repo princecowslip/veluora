@@ -1,0 +1,11 @@
+[
+  {
+    "id": 2001,
+    "tags": "cat cute outdoors",
+    "source": "https://example.test/original/2001",
+    "file_url": "https://cdn.example.test/2001.png",
+    "sample_url": "https://cdn.example.test/2001_sample.png",
+    "preview_url": "https://cdn.example.test/2001_preview.png",
+    "rating": "safe"
+  }
+]

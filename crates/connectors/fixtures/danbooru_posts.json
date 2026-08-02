@@ -1,0 +1,24 @@
+[
+  {
+    "id": 1001,
+    "tag_string": "blue_eyes 1girl outdoors",
+    "source": "https://example.test/original/1001",
+    "file_url": "https://cdn.example.test/1001.jpg",
+    "large_file_url": "https://cdn.example.test/1001_large.jpg",
+    "preview_file_url": "https://cdn.example.test/1001_preview.jpg",
+    "file_ext": "jpg",
+    "file_size": 234567,
+    "rating": "g"
+  },
+  {
+    "id": 1002,
+    "tag_string": "animated short_clip",
+    "source": "",
+    "file_url": "https://cdn.example.test/1002.webm",
+    "large_file_url": null,
+    "preview_file_url": "https://cdn.example.test/1002_preview.jpg",
+    "file_ext": "webm",
+    "file_size": 987654,
+    "rating": "q"
+  }
+]
