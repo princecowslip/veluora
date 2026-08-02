@@ -9,7 +9,10 @@
 
 use std::sync::Arc;
 
-use connectors::{Connector, ConnectorRegistry, FeedConnector, FEED_CONNECTOR_ID};
+use connectors::{
+    BooruConnector, Connector, ConnectorRegistry, FeedConnector, BOORU_CONNECTOR_ID,
+    FEED_CONNECTOR_ID,
+};
 use domain::{
     AuthMethod, Clause, ConnectorCapabilities, ConnectorId, ConnectorResult, HealthState, ItemId,
     MediaType, PaginationMode, RemoteItem, SearchQuery, Source, SourceId, VariantId,
@@ -382,6 +385,7 @@ impl SourceService {
     fn registry() -> ConnectorRegistry {
         let mut registry = ConnectorRegistry::new();
         registry.register(FEED_CONNECTOR_ID, Arc::new(FeedConnector::new()));
+        registry.register(BOORU_CONNECTOR_ID, Arc::new(BooruConnector::new()));
         registry.register(
             LOCAL_FILESYSTEM_CONNECTOR_ID,
             Arc::new(LocalFilesystemConnector),
@@ -618,6 +622,22 @@ mod tests {
         let ctx = AppContext::open_in_memory().unwrap();
         let err = SourceService::remove(&ctx, SourceId::new()).unwrap_err();
         assert!(matches!(err, AppError::NotFound(_)));
+    }
+
+    #[test]
+    fn a_booru_source_resolves_to_the_registered_booru_connector() {
+        let ctx = AppContext::open_in_memory().unwrap();
+        let source = SourceService::add(
+            &ctx,
+            connectors::BOORU_CONNECTOR_ID,
+            "My Booru".to_string(),
+            serde_json::json!({ "flavor": "danbooru", "base_url": "https://example.test" }),
+        )
+        .unwrap();
+
+        let (_, connector) = SourceService::connector_for(&ctx, source.id).unwrap();
+        assert_eq!(connector.identify(), "Booru (Danbooru/Gelbooru-compatible)");
+        assert!(connector.capabilities().search);
     }
 
     #[tokio::test]

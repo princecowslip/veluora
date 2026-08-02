@@ -5,10 +5,13 @@
 //! `application` from here would create a cycle (`application` needs
 //! this crate's `Connector` trait/registry to dispatch through).
 
+pub mod booru;
 pub mod feed;
+mod http_util;
 pub mod registry;
 pub mod trait_def;
 
+pub use booru::{BooruConnector, BOORU_CONNECTOR_ID};
 pub use feed::{FeedConnector, FEED_CONNECTOR_ID};
 pub use registry::ConnectorRegistry;
 pub use trait_def::Connector;

@@ -1,0 +1,13 @@
+{
+  "post": [
+    {
+      "id": 2002,
+      "tags": "dog park",
+      "source": "",
+      "file_url": "https://cdn.example.test/2002.jpg",
+      "sample_url": "https://cdn.example.test/2002_sample.jpg",
+      "preview_url": "https://cdn.example.test/2002_preview.jpg",
+      "rating": "questionable"
+    }
+  ]
+}
