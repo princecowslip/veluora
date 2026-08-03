@@ -1,5 +1,11 @@
 # Feedback, Errors, and Notifications
 
+## Implementation status
+
+This is UI-pattern guidance, not a description of a built system — no
+notification-preference code (per-event settings, OS-notification wiring)
+exists anywhere in the codebase today.
+
 ## Feedback principles
 
 The interface should always show:

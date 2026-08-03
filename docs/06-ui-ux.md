@@ -75,6 +75,14 @@ Avoid implying that local actions modify the remote source.
 
 ## Onboarding flow
 
+Design target: a 5-step flow (adult/safety notice, privacy setup, local
+library, playback integration, optional sources). The shipped GUI
+onboarding (`crates/gui/src/screens/onboarding.rs`) is a simpler 4-step
+flow — Welcome, pick a folder, scan, and a privacy summary — with no
+adult/safety-notice step, no privacy-mode choice, no playback-integration
+step, and no sources step (sources are configured later from the Sources
+screen). The steps below remain the design target for a future revision:
+
 ### Step 1: Adult and safety notice
 
 - Confirm lawful adult use.

@@ -68,6 +68,10 @@ Security:
 
 ## Stories
 
+Shipped (`crates/media/src/story.rs`): plain text and Markdown only.
+Sanitized HTML and EPUB input remain unbuilt (`KNOWN_ISSUES.md`, Media
+handling section) — the fuller list below remains the design target:
+
 Accepted input may include:
 
 - Plain text
@@ -103,6 +107,10 @@ Features:
 Completion should use duration threshold or explicit user action.
 
 ## Manga and comics
+
+Shipped (`crates/media/src/archive.rs`): CBZ (ZIP-based) comic archives
+only — no CBR, CB7, or EPUB comics support yet (`KNOWN_ISSUES.md`, Media
+handling section). The fuller list below remains the design target:
 
 Input types:
 

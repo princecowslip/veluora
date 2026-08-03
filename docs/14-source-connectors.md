@@ -158,14 +158,20 @@ media_types:
 
 ## Reference connectors
 
-Recommended initial set:
+Shipped today (`crates/connectors/src/`):
 
 - Local filesystem
-- RSS or Atom media feed
-- Official API example
-- Generic booru-compatible API
+- RSS or Atom media feed (`FeedConnector`)
+- Generic booru-compatible API, covering both Danbooru's REST/JSON API and
+  Gelbooru's DAPI via a `flavor` config field (`BooruConnector`)
+- OPDS 1.x catalog, for self-hosted book/comic/manga servers such as
+  Komga, Kavita, and Calibre-Web (`OpdsConnector`)
 
 The generic connector should target a documented API family, not arbitrary HTML.
+
+Personal-server connectors beyond OPDS (Jellyfin, Kavita's native API,
+Komga's native API, Audiobookshelf, and similar) remain unbuilt — see
+`KNOWN_ISSUES.md`.
 
 ## Maintenance policy
 

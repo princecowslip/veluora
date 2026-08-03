@@ -4,6 +4,11 @@
 
 This document provides sample screen-level UI specifications for **Home**, **Library**, and **Viewer**. It is not a final wireframe, but a concrete reference for layout, components, states, and interactions. See also [32 — UI/UX Wireframes](32-ui-wireframes.md) for structural ASCII wireframes and [52 — Sample UI Specification](52-sample-ui-spec.md) for exact pixel measurements of the same screens — the three documents are complementary, not contradictory.
 
+This is a target-state depiction, not current behavior: the real Home
+screen has only Continue and Recently Added sections (no Queue, Pinned
+Collections, or Saved Searches), and the real GUI has no top-level
+Collections screen.
+
 ## 1. Home Screen
 
 ### Goals

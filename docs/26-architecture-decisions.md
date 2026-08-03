@@ -91,22 +91,33 @@ This file contains the accepted architecture decision records for the planning p
 - Community demand may exceed official scope.
 - Connector governance becomes important.
 
-## ADR-006: Third-party plugins run outside the main process
+## ADR-006: Third-party plugins run in an in-process WASM sandbox
 
-**Status:** Accepted
+**Status:** Accepted (superseded implementation choice — see note)
 
 **Decision:** Isolate plugins with explicit permissions and resource limits.
+
+As shipped (Milestone H, `crates/plugin-host::sandbox`), isolation is
+provided by an embedded `wasmtime` engine running plugins **in the same
+process** — not by moving them to a separate OS process with IPC. A
+default-deny import model plus fuel and memory limits provide the
+isolation boundary instead.
 
 **Rationale:**
 
 - Connectors process untrusted network data.
 - Plugins must not receive database or credential access.
-- Crashes should not terminate the application.
+- Crashes should not terminate the application (fuel/memory limits +
+  WASM's own memory-safety guarantees provide this without a process
+  boundary).
 
 **Consequences:**
 
-- More IPC and packaging complexity.
+- A WASM linear-memory boundary rather than an OS process boundary — no
+  IPC layer or separate host process to package and version.
 - Some plugin APIs will be less flexible.
+- No real package signing or publisher PKI exists yet for plugin
+  distribution (see `KNOWN_ISSUES.md`).
 
 ## ADR-007: Downloads require explicit source capability
 

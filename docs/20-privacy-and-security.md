@@ -1,5 +1,16 @@
 # Privacy and Security
 
+## Implementation status
+
+This document is a design target. What's actually shipped today: the
+local API binds to loopback only and never returns a permissive CORS
+header (tested since Milestone I); field-level AES-256-GCM encryption
+(Argon2-derived key) protects notes and private tags (Milestone E). Not
+yet implemented: an OS-credential-manager adapter (connector credentials
+are stored in plain `configuration_json`), private-address/SSRF blocking
+for connectors, DNS-rebinding defenses, and whole-database encryption. See
+`KNOWN_ISSUES.md` for the full, current list.
+
 ## Threat model
 
 Protected assets:
@@ -39,6 +50,8 @@ Potential attackers:
 
 ## Credential handling
 
+Not yet implemented — see "Implementation status" above. Design target:
+
 - Use the operating-system credential manager.
 - Assign credentials to one source.
 - Provide revoke and test operations.
@@ -74,6 +87,12 @@ Unlock methods:
 Do not invent custom cryptography for password storage.
 
 ## Network security
+
+Shipped: request/response-size limits for connectors (`FeedConnector`/
+`BooruConnector`'s shared response-size cap) and the local API's loopback
+binding. Not yet implemented: private-address/SSRF blocking, DNS-rebinding
+defenses, and per-source cookie jars — see `KNOWN_ISSUES.md`. Design
+target:
 
 - HTTPS by default.
 - Certificate validation.

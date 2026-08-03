@@ -32,14 +32,22 @@
 
 ## Engineering
 
-- [ ] Core language chosen.
-- [ ] GUI toolkit chosen.
-- [ ] Local API or IPC chosen.
-- [ ] Database migration framework chosen.
-- [ ] Credential-store adapters selected.
-- [ ] Media engine selected.
-- [ ] CI matrix implemented.
-- [ ] notcurses package strategy confirmed.
+- [x] Core language chosen — Rust (workspace since Milestone A).
+- [x] GUI toolkit chosen — iced 0.13 (Milestone D).
+- [x] Local API or IPC chosen — loopback-only HTTP `local-api` (Milestone A).
+- [x] Database migration framework chosen — versioned SQL files under
+  `migrations/`, applied by a runner in `crates/database` (Milestone A).
+- [ ] Credential-store adapters selected — not yet; connector credentials
+  (e.g. booru API keys, OPDS Basic-auth passwords) are stored in plain
+  `configuration_json` today, no OS-credential-manager adapter exists.
+- [x] Media engine selected — external FFmpeg (`ffprobe`/`ffmpeg` on `PATH`)
+  for probing/thumbnailing, external player launch for playback
+  (Milestone C).
+- [x] CI matrix implemented — GitHub Actions builds and tests the Rust
+  workspace and the C++ TUI on every push.
+- [x] notcurses package strategy confirmed — packaged installation via
+  `scripts/install-tui-deps.sh`, documented in
+  [45 — Required Packages and Dependencies](45-required-packages-dependencies.md).
 
 ## Security and privacy
 
@@ -84,5 +92,9 @@ The final planning package includes:
 - Privacy, security, and safety requirements
 - Testing and release gates
 - Dependency inventory
-- Specifications for a CMake TUI scaffold and JSON/CSS design assets (not yet generated — see the "planned" notes in docs 30, 41, 42, 43, 45, and 49)
+- A CMake TUI scaffold — built and CI-tested, not just specified; see `tui/`
+- Design/documentation JSON assets — `assets/dependencies.json` exists;
+  `colors.json`, `colors.css`, `source-presets.json`, `taxonomy.json`, and
+  `ui-preferences.json` remain planned, see the "still planned" notes in
+  docs 30, 41, 42, 43, and 49
 - Implementation and traceability plans

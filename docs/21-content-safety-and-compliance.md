@@ -4,6 +4,15 @@
 
 This document defines product controls, not legal advice. A public or hosted release requires specialist review in every supported jurisdiction.
 
+## Implementation status
+
+This document is a design target for the blocking/safety system. Today,
+`domain::BlockRule` exists and is consulted in exactly one place —
+`DownloadService`'s eligibility check — but there is no CLI command,
+`local-api` route, or GUI/TUI screen to create, list, or remove a block
+rule anywhere. See `KNOWN_ISSUES.md`'s "Content safety and blocking"
+section.
+
 ## Prohibited material
 
 The application must not knowingly index, retain, display, distribute, or facilitate access to:
@@ -49,6 +58,20 @@ Official connectors require review of:
 
 ## Safety statuses
 
+The shipped `domain::media_item::SafetyStatus` enum is a simpler 4-value
+model:
+
+```text
+Unreviewed
+Approved
+Flagged
+Blocked
+```
+
+The richer 7-value model below (`Unknown`/`Allowed`/`UserBlocked`/
+`SourceBlocked`/`PolicyBlocked`/`ReviewRequired`/`Removed`) remains a
+design target, not what's implemented:
+
 ```text
 Unknown
 Allowed
@@ -61,7 +84,7 @@ Removed
 
 Policy-blocked items should not render thumbnails or descriptions.
 
-## User controls
+## User controls (design target — no UI exists yet)
 
 - Block source
 - Block creator

@@ -1,5 +1,16 @@
 # Settings and Preferences
 
+## Implementation status
+
+This document is a design target cataloguing roughly 90 settings across 11
+categories. The real GUI Settings screen
+(`crates/gui/src/screens/settings.rs`) implements about 8: theme
+(Dark/Light), library folders, external player path, password/
+start-locked, metadata encryption, backup/restore, and diagnostics export.
+Some backend equivalents for other sections exist without Settings-screen
+UI (e.g. download quota via `PrivacyService`/`DownloadService`), but most
+of the catalogue below is unbuilt.
+
 ## General
 
 - Launch at startup

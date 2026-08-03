@@ -45,10 +45,15 @@ It supports:
 
 - Home
 - Library
+- Privacy Center
+- Sources
 - Discover
-- Collections
 - Downloads
 - Settings
+
+Collections has no dedicated top-level screen in the GUI today — it's
+reachable via `application::CollectionService`/the CLI/the TUI's
+Collections view (F3), but not from the desktop GUI's main navigation.
 
 ## Home
 
@@ -84,12 +89,19 @@ The MVP includes:
 - Design tokens
 - Accessible keyboard operation
 
+## Shipped since MVP
+
+- Unified source search (Discover, Milestone I)
+- Download manager (Milestone J)
+- Terminal UI (Milestone G)
+- Source connectors: RSS/Atom feed, booru (Danbooru/Gelbooru), OPDS
+  (Milestones F, K, L)
+- Plugin sandbox infrastructure (Milestone H)
+
 ## Next release
 
-- Personal server connectors
-- Unified source search
-- Download manager
-- TUI
+- Personal server connectors (Jellyfin, Kavita, Komga, and similar — see
+  `KNOWN_ISSUES.md`)
 - Duplicate review
 - Saved searches
 - Home feed personalization

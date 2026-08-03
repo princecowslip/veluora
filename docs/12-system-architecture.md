@@ -72,19 +72,31 @@ Presentation code must not call connector or database implementations directly.
 
 ### Application services
 
-Examples:
+Shipped, in `crates/application/src/`:
 
 - SearchService
 - LibraryService
+- LibraryRootService
+- ScanService
 - ItemService
 - CollectionService
+- ComicService
+- StoryService
+- ThumbnailService
+- UserStateService
 - PlaybackService
 - DownloadService
 - SourceService
+- DiscoverService
+- SettingsService
 - PrivacyService
-- SafetyService
-- PluginService
 - DiagnosticsService
+
+There is no dedicated `SafetyService` or `PluginService` — safety/blocking
+logic is consulted ad hoc inside `DownloadService`'s eligibility check, and
+plugin governance (manifest validation, permissions, the sandbox) lives
+entirely in the separate `crates/plugin-host` crate rather than as an
+`application` service.
 
 ### Domain core
 

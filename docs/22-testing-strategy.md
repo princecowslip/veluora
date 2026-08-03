@@ -72,11 +72,13 @@ Key flows:
 
 Use safe synthetic fixtures containing:
 
-- JPEG, PNG, WebP, AVIF
+- JPEG, PNG, GIF, WebP — the four formats the `image` crate is actually
+  configured to decode (`Cargo.toml`); AVIF is not decoded anywhere
 - animated GIF and WebP
 - MP4, WebM, MKV
 - MP3, AAC, FLAC, Opus
-- plain text, Markdown, sanitized HTML, EPUB
+- plain text, Markdown — shipped story formats; sanitized HTML and EPUB
+  remain unbuilt (`KNOWN_ISSUES.md`)
 - ZIP comic archives
 - right-to-left page order
 - corrupt media

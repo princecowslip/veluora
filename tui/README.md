@@ -9,8 +9,10 @@ database, links `crates/application`, or runs source connectors directly (see
 
 Tier B (Unicode/color) and Tier C (text-only) capability only — Tier A
 (Kitty/Sixel inline bitmap thumbnails) is deferred, so cards never try to
-decode or blit an image. Discover, Sources, Queue, and Settings views aren't
-built (no connector data or meaningful terminal settings exist yet), and
+decode or blit an image. Discover (F8) and Sources (F7) views are built and
+talk to real connector data; a Queue view never shipped as a separate
+concept — downloads (including queueing) live in the Downloads view (F9).
+There is no Settings view (no meaningful terminal settings exist yet), and
 neither is the command palette / collection-picker / shortcut-help overlay
 pile — search is a plain inline text field, and `?` shows a static keybinding
 list instead. Item deletion and clear-history aren't exposed either:

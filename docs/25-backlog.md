@@ -120,7 +120,10 @@ Acceptance criteria:
 
 ### Block tag
 
-Acceptance criteria:
+Not started — `domain::BlockRule` is consulted only inside
+`DownloadService`'s eligibility check today; there is no CLI command,
+`local-api` route, or GUI/TUI surface to create or manage one yet (see
+`KNOWN_ISSUES.md`). Acceptance criteria for when this is built:
 
 - User sees rule scope.
 - Existing affected count is estimated.

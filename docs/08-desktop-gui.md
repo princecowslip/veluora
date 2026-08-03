@@ -86,7 +86,21 @@ On wide screens, optional split-view detail includes:
 - Technical information
 - Collection actions
 
+## Sources screen
+
+Shipped (`crates/gui/src/screens/sources.rs`): a single-step add form
+(pick a connector type, display name, and a `configuration_json` blob),
+plus per-source enable/disable, remove, health-check, browse, and import
+actions. There is no multi-step wizard, capability review, or connection
+test — see "Source setup wizard" below for the design target.
+
 ## Discover screen
+
+Shipped (`crates/gui/src/screens/discover.rs`): a single query box and a
+flat hit list, with one status row per source (`DiscoverSourceStatus`) —
+no source-selector modes and no result-grouping options exist today; see
+`KNOWN_ISSUES.md`'s Connectors section. The design target below remains
+aspirational:
 
 ### Source selector
 
@@ -173,6 +187,11 @@ User options:
 
 ## Downloads
 
+Shipped (`crates/gui/src/screens/downloads.rs`): a per-row Pause/Resume/
+Cancel/Pin/Remove action set, plus a contextual "Download" button on the
+Viewer screen. There are no Speed or Remaining-size columns and no bulk
+actions yet. The design target below remains aspirational:
+
 Use a table or stacked rows with:
 
 - Item
@@ -193,7 +212,10 @@ Bulk actions:
 - Clear completed
 - Move storage location where supported
 
-## Source setup wizard
+## Source setup wizard (design target — not built)
+
+The real Sources screen is a single-step add form, not a wizard; see
+"Sources screen" above. The multi-step flow below remains a design target:
 
 1. Select source type.
 2. Review capabilities.

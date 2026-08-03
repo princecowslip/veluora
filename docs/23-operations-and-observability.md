@@ -1,5 +1,18 @@
 # Operations and Observability
 
+## Implementation status
+
+This document is entirely a design target. No logging or metrics crate
+(`log`/`tracing`) exists anywhere in the workspace, so the Metrics, Health
+states, and Logging levels sections below describe infrastructure that
+hasn't been built at all yet. The one real, shipped piece is
+`DiagnosticsService::support_bundle` (Milestone E), and it's narrower than
+the "Redacted support bundle" section below implies — it actually contains
+`app_version`, `os`, migration counts, `item_counts_by_media_type`,
+`cache_size_bytes`, `ffprobe_available`/`ffmpeg_available`, and
+`metadata_encryption_enabled` — no enabled-connector list, permission
+manifests, or health-check summaries.
+
 ## Local-first observability
 
 Most diagnostics remain on the device.
