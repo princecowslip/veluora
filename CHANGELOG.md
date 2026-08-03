@@ -2,6 +2,12 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Veloura hasn't cut a versioned release yet — this tracks what each milestone actually shipped. See `KNOWN_ISSUES.md` for what's explicitly out of scope so far.
 
+## Download crash recovery and a concurrency cap
+
+- Fixed a real bug in `DownloadService::claim`: a `local-api`/GUI process killed mid-transfer left its row permanently stuck `Active` — `claim()` only reclaims `Queued`/`Paused`/`Failed` rows, so a fresh `run`/`resume` silently no-op'd on it forever. New `DownloadService::repair_stale_active` (time-based on the existing `updated_at` heartbeat, so it's safe even with `local-api` and the GUI running against the same database at once) and `repair_if_stale` (single-row, used by the CLI) recover these back to `Paused`.
+- `local-api` and the GUI now auto-resume `Queued` and crash-recovered `Paused` rows at startup and on a 60s periodic recheck (`DownloadService::resumable_after_restart`) — user-deliberately-paused rows are left alone. This doesn't add the persistent background daemon `KNOWN_ISSUES.md` describes as unbuilt (a restart is still required to trigger recovery), but it closes the "stuck forever, resume silently no-ops" failure mode and the "must remember to manually resume everything after a crash" gap.
+- New `SettingsService::max_concurrent_downloads` (default 3) backs a real concurrency cap: `local-api` (`ApiState::download_semaphore`) and the GUI (`App::download_semaphore`) gate every spawned download through a `tokio::sync::Semaphore`, so `add`/`resume` calls beyond the cap wait for a slot rather than all running unconditionally — closing `docs/37-settings-and-preferences.md`'s "Maximum concurrent downloads" gap.
+
 ## Milestone L — OPDS connector (Workstream 10)
 
 - New `connectors::OpdsConnector`: an OPDS 1.x (Atom+XML) catalog connector for self-hosted book/comic/manga servers — Komga, Kavita, and Calibre-Web all serve OPDS (`configuration_json`: `url`, optional `username`/`password` for HTTP Basic auth). It's the fourth connector to exist and reuses `feed_rs` (already a dependency for `FeedConnector`) rather than adding a direct XML dependency, resolving relative `href`s (which real OPDS servers use extensively) against the catalog's own URL via `feed_rs`'s `base_uri` parser option.

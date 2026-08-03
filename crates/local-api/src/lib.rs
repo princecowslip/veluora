@@ -13,20 +13,61 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use application::{AppContext, AppError, DiagnosticsService};
+use application::{AppContext, AppError, DiagnosticsService, DownloadService, SettingsService};
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
+use domain::DownloadId;
 use rand::Rng;
 use serde_json::json;
+use tokio::sync::Semaphore;
 
 #[derive(Clone)]
 pub struct ApiState {
     pub ctx: Arc<AppContext>,
     pub token: Arc<str>,
+    pub download_semaphore: Arc<Semaphore>,
+}
+
+impl ApiState {
+    /// Builds state with a semaphore sized from
+    /// [`SettingsService::max_concurrent_downloads`]. The one non-test
+    /// constructor — use this from `main.rs` rather than the struct
+    /// literal, so the cap is never accidentally left unbounded.
+    pub fn new(ctx: Arc<AppContext>, token: Arc<str>) -> application::Result<Self> {
+        let cap = SettingsService::max_concurrent_downloads(&ctx)?.max(1) as usize;
+        Ok(Self {
+            ctx,
+            token,
+            download_semaphore: Arc::new(Semaphore::new(cap)),
+        })
+    }
+}
+
+/// Runs startup download recovery: repairs any `Active` row a prior
+/// instance left stuck (see `application::download::DownloadService::repair_stale_active`
+/// for why this is time-based rather than an unconditional sweep — a
+/// sibling GUI process can legitimately be running a download against
+/// the same database at the same time), sweeps now-truly-orphaned temp
+/// files, and re-launches every `Queued`/crash-recovered-`Paused` row
+/// through the same semaphore-gated path `add`/`resume` use. Called
+/// once at process startup and again from a periodic background task,
+/// so a row that goes stale *while this process is running* also
+/// eventually recovers.
+pub fn recover_and_resume_downloads(
+    ctx: &Arc<AppContext>,
+    download_semaphore: &Arc<Semaphore>,
+) -> application::Result<Vec<DownloadId>> {
+    DownloadService::repair_stale_active(ctx, DownloadService::DEFAULT_STALE_ACTIVE_THRESHOLD)?;
+    let _ = DownloadService::sweep_orphaned_temp_files(ctx);
+    let resumable = DownloadService::resumable_after_restart(ctx)?;
+    for id in &resumable {
+        routes::downloads::spawn_download(ctx, download_semaphore, *id);
+    }
+    Ok(resumable)
 }
 
 pub fn build_router(state: ApiState) -> Router {
@@ -182,10 +223,7 @@ mod tests {
     #[tokio::test]
     async fn health_is_reachable_without_a_token() {
         let ctx = Arc::new(AppContext::open_in_memory().expect("context"));
-        let state = ApiState {
-            ctx,
-            token: Arc::from(generate_token()),
-        };
+        let state = ApiState::new(ctx, Arc::from(generate_token())).unwrap();
         let app = build_router(state);
 
         let response = app
@@ -204,10 +242,7 @@ mod tests {
     async fn diagnostics_summary_requires_a_valid_token() {
         let ctx = Arc::new(AppContext::open_in_memory().expect("context"));
         let token = generate_token();
-        let state = ApiState {
-            ctx,
-            token: Arc::from(token.clone()),
-        };
+        let state = ApiState::new(ctx, Arc::from(token.clone())).unwrap();
 
         let unauthorized = build_router(state.clone())
             .oneshot(

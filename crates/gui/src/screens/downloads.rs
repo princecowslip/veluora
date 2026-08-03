@@ -10,6 +10,7 @@ use application::{AppContext, DownloadService, DownloadSummary};
 use domain::{Download, DownloadId, DownloadState};
 use iced::widget::{button, column, container, row, text};
 use iced::{Element, Task};
+use tokio::sync::Semaphore;
 
 #[derive(Default)]
 pub struct State {
@@ -48,7 +49,12 @@ pub fn has_in_flight_downloads(state: &State) -> bool {
     })
 }
 
-pub fn update(state: &mut State, ctx: &Arc<AppContext>, message: Message) -> Task<Message> {
+pub fn update(
+    state: &mut State,
+    ctx: &Arc<AppContext>,
+    download_semaphore: &Arc<Semaphore>,
+    message: Message,
+) -> Task<Message> {
     match message {
         Message::Refresh => {
             refresh(state, ctx);
@@ -63,8 +69,10 @@ pub fn update(state: &mut State, ctx: &Arc<AppContext>, message: Message) -> Tas
         }
         Message::Resume(id) => {
             let ctx = ctx.clone();
+            let semaphore = download_semaphore.clone();
             Task::perform(
                 async move {
+                    let _permit = semaphore.acquire_owned().await;
                     Box::new(
                         DownloadService::resume(&ctx, id)
                             .await
@@ -183,6 +191,10 @@ mod tests {
         (ctx, dir)
     }
 
+    fn test_semaphore() -> Arc<Semaphore> {
+        Arc::new(Semaphore::new(10))
+    }
+
     fn queue_a_download(ctx: &Arc<AppContext>) -> (ItemId, VariantId, DownloadId) {
         let source = application::SourceService::add(
             ctx,
@@ -240,7 +252,12 @@ mod tests {
         let mut state = State::default();
         refresh(&mut state, &ctx);
 
-        let _ = update(&mut state, &ctx, Message::Pause(download_id));
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            Message::Pause(download_id),
+        );
         assert_eq!(state.downloads[0].download.state, DownloadState::Paused);
     }
 
@@ -252,7 +269,12 @@ mod tests {
         refresh(&mut state, &ctx);
         assert!(!state.downloads[0].download.pinned);
 
-        let _ = update(&mut state, &ctx, Message::TogglePin(download_id, true));
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            Message::TogglePin(download_id, true),
+        );
         assert!(state.downloads[0].download.pinned);
     }
 
@@ -263,7 +285,12 @@ mod tests {
         let mut state = State::default();
         refresh(&mut state, &ctx);
 
-        let _ = update(&mut state, &ctx, Message::Remove(download_id, false));
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            Message::Remove(download_id, false),
+        );
         assert!(state.downloads.is_empty());
     }
 
@@ -283,7 +310,12 @@ mod tests {
         let mut state = State::default();
         refresh(&mut state, &ctx);
 
-        let _ = update(&mut state, &ctx, Message::Cancel(download_id));
+        let _ = update(
+            &mut state,
+            &ctx,
+            &test_semaphore(),
+            Message::Cancel(download_id),
+        );
         assert!(!has_in_flight_downloads(&state));
     }
 }

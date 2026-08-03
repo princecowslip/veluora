@@ -449,3 +449,59 @@ async fn checksum_mismatch_never_finalizes_the_download() {
         "no .part file should remain after a checksum mismatch"
     );
 }
+
+#[tokio::test]
+async fn repair_stale_active_recovers_a_row_left_behind_by_a_killed_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = AppContext::open_at(dir.path()).unwrap();
+
+    let full_body = fixture_bytes(4000);
+    let addr = spawn_fixed_body_server(full_body.clone()).await;
+    let source_id = add_feed_source(&ctx);
+    let (item_id, variant_id) = import_downloadable_video(
+        &ctx,
+        source_id,
+        "guid-crash-recovery",
+        "Crash Recovery Video",
+        &format!("http://{addr}/file.bin"),
+        full_body.len() as u64,
+    );
+    let download = DownloadService::add(&ctx, item_id, variant_id).unwrap();
+
+    // Simulate a process that claimed the row and then vanished
+    // (SIGKILL, crash, power loss) partway through — no error handler
+    // ever ran, so the row is left `active` with no fresh heartbeat,
+    // exactly like `claim()`'s stuck-row bug produces in real use.
+    let temp_dir = ctx.data_dir.join("temp").join("downloads");
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let temp_path = temp_dir.join(format!("{}.part", download.id));
+    std::fs::write(&temp_path, &full_body[..1500]).unwrap();
+    let stale = application::time_format::to_rfc3339(
+        time::OffsetDateTime::now_utc() - time::Duration::seconds(999),
+    );
+    ctx.db
+        .connection()
+        .execute(
+            "UPDATE downloads SET state = 'active', temp_path = ?2, bytes_received = 1500, \
+             updated_at = ?3 WHERE id = ?1",
+            rusqlite::params![download.id.to_string(), temp_path.to_string_lossy(), stale],
+        )
+        .unwrap();
+
+    // A fresh `run`/`resume` call before repair is a documented no-op —
+    // this is the bug repair exists to fix.
+    let untouched = DownloadService::run(&ctx, download.id).await.unwrap();
+    assert_eq!(untouched.state, DownloadState::Active);
+
+    let repaired =
+        DownloadService::repair_stale_active(&ctx, std::time::Duration::from_secs(180)).unwrap();
+    assert_eq!(repaired, vec![download.id]);
+
+    let resumable = DownloadService::resumable_after_restart(&ctx).unwrap();
+    assert_eq!(resumable, vec![download.id]);
+
+    let finished = DownloadService::run(&ctx, download.id).await.unwrap();
+    assert_eq!(finished.state, DownloadState::Completed);
+    let bytes = std::fs::read(&finished.destination).unwrap();
+    assert_eq!(bytes, full_body);
+}

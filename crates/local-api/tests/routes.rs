@@ -14,10 +14,7 @@ async fn test_state() -> (ApiState, String, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Arc::new(AppContext::open_at(dir.path()).unwrap());
     let token = generate_token();
-    let state = ApiState {
-        ctx,
-        token: Arc::from(token.as_str()),
-    };
+    let state = ApiState::new(ctx, Arc::from(token.as_str())).unwrap();
     (state, token, dir)
 }
 

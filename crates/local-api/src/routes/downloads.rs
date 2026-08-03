@@ -8,7 +8,9 @@
 //! multi-threaded runtime and return `202 Accepted` immediately —
 //! callers poll `GET /api/v1/downloads/:id` for progress.
 
-use application::{DownloadService, PrivacyService, SettingsService};
+use std::sync::Arc;
+
+use application::{AppContext, DownloadService, PrivacyService, SettingsService};
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -16,9 +18,26 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use domain::{DownloadId, ItemId, VariantId};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::{bad_id_response, error_response, ApiState};
+
+/// Spawns `DownloadService::run` gated by `semaphore` — an `add`/`resume`
+/// call beyond `max_concurrent_downloads` just waits on the permit
+/// (the row stays `Queued`/`Paused` in the meantime), so the semaphore
+/// itself is the whole scheduler; no separate queue data structure is
+/// needed.
+pub(crate) fn spawn_download(ctx: &Arc<AppContext>, semaphore: &Arc<Semaphore>, id: DownloadId) {
+    let ctx = ctx.clone();
+    let semaphore = semaphore.clone();
+    tokio::spawn(async move {
+        let Ok(_permit) = semaphore.acquire_owned().await else {
+            return;
+        };
+        let _ = DownloadService::run(&ctx, id).await;
+    });
+}
 
 pub fn router() -> Router<ApiState> {
     Router::new()
@@ -68,11 +87,7 @@ async fn add(State(state): State<ApiState>, Json(body): Json<AddDownloadRequest>
     };
     match DownloadService::add(&state.ctx, item_id, variant_id) {
         Ok(download) => {
-            let ctx = state.ctx.clone();
-            let id = download.id;
-            tokio::spawn(async move {
-                let _ = DownloadService::run(&ctx, id).await;
-            });
+            spawn_download(&state.ctx, &state.download_semaphore, download.id);
             (StatusCode::ACCEPTED, Json(download)).into_response()
         }
         Err(e) => error_response(&e),
@@ -110,10 +125,7 @@ async fn resume(State(state): State<ApiState>, AxumPath(id): AxumPath<String>) -
     };
     match DownloadService::find(&state.ctx, download_id) {
         Ok(Some(download)) => {
-            let ctx = state.ctx.clone();
-            tokio::spawn(async move {
-                let _ = DownloadService::resume(&ctx, download_id).await;
-            });
+            spawn_download(&state.ctx, &state.download_semaphore, download_id);
             (StatusCode::ACCEPTED, Json(download)).into_response()
         }
         Ok(None) => (

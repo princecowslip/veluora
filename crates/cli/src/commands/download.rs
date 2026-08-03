@@ -101,6 +101,13 @@ pub fn resume(format: OutputFormat, quiet: bool, download_id: String) -> ExitCod
         Ok(ctx) => ctx,
         Err(code) => return code,
     };
+    // Repairs this one row if a killed `local-api`/GUI process left it
+    // stuck `Active` (see `DownloadService::claim`'s doc comment) —
+    // scoped to just this id, unlike `repair_stale_active`, since this
+    // short-lived CLI process must not risk touching a row a still-live
+    // sibling process genuinely owns.
+    let _ =
+        DownloadService::repair_if_stale(&ctx, id, DownloadService::DEFAULT_STALE_ACTIVE_THRESHOLD);
     match run_async(DownloadService::resume(&ctx, id)) {
         Ok(download) => {
             print_download(format, quiet, &download);
