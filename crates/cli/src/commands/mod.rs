@@ -1,3 +1,4 @@
+pub mod block_rule;
 pub mod collection;
 pub mod diagnostics;
 pub mod discover;

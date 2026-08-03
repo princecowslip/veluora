@@ -2,6 +2,12 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Veloura hasn't cut a versioned release yet — this tracks what each milestone actually shipped. See `KNOWN_ISSUES.md` for what's explicitly out of scope so far.
 
+## Block rule CRUD
+
+- New `application::BlockRuleService` (create/list/remove/set_enabled) is the first code to write to the `block_rules` table — previously `DownloadService::is_blocked` was the only consumer, and there was no way to create, list, or remove a rule anywhere (see `KNOWN_ISSUES.md`).
+- New `local-api` routes (`GET/POST /api/v1/block-rules`, `DELETE /api/v1/block-rules/:id`, `POST .../enable`, `POST .../disable`) and `veloura block-rule list/add/remove/enable/disable` CLI commands, mirroring the existing `sources` resource's shape. No GUI/TUI screen yet — see `KNOWN_ISSUES.md`.
+- `DownloadService::is_blocked`'s row-mapping/string-conversion helpers moved into `application::block_rules` so there's one implementation instead of two; no behavior change.
+
 ## Download crash recovery and a concurrency cap
 
 - Fixed a real bug in `DownloadService::claim`: a `local-api`/GUI process killed mid-transfer left its row permanently stuck `Active` — `claim()` only reclaims `Queued`/`Paused`/`Failed` rows, so a fresh `run`/`resume` silently no-op'd on it forever. New `DownloadService::repair_stale_active` (time-based on the existing `updated_at` heartbeat, so it's safe even with `local-api` and the GUI running against the same database at once) and `repair_if_stale` (single-row, used by the CLI) recover these back to `Paused`.

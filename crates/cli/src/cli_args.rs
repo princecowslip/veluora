@@ -114,6 +114,12 @@ pub enum Command {
         #[command(subcommand)]
         action: PluginAction,
     },
+    /// Content-blocking rules consulted by download eligibility
+    /// (`docs/21-content-safety-and-compliance.md`).
+    BlockRule {
+        #[command(subcommand)]
+        action: BlockRuleAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -322,6 +328,83 @@ pub enum SourceAction {
         /// A `domain::RemoteItem` JSON object.
         #[arg(long = "json")]
         remote_item_json: String,
+    },
+}
+
+/// Mirrors `domain::RuleType` — kept separate so `domain` doesn't need
+/// a `clap` dependency just for this, matching `PluginStatusArg`.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum RuleTypeArg {
+    ExactItem,
+    Source,
+    Creator,
+    Series,
+    Tag,
+    Domain,
+    FileHash,
+    PerceptualHash,
+    Query,
+}
+
+impl From<RuleTypeArg> for domain::RuleType {
+    fn from(value: RuleTypeArg) -> Self {
+        match value {
+            RuleTypeArg::ExactItem => domain::RuleType::ExactItem,
+            RuleTypeArg::Source => domain::RuleType::Source,
+            RuleTypeArg::Creator => domain::RuleType::Creator,
+            RuleTypeArg::Series => domain::RuleType::Series,
+            RuleTypeArg::Tag => domain::RuleType::Tag,
+            RuleTypeArg::Domain => domain::RuleType::Domain,
+            RuleTypeArg::FileHash => domain::RuleType::FileHash,
+            RuleTypeArg::PerceptualHash => domain::RuleType::PerceptualHash,
+            RuleTypeArg::Query => domain::RuleType::Query,
+        }
+    }
+}
+
+/// Mirrors `domain::Scope` — same rationale as `RuleTypeArg`.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ScopeArg {
+    All,
+    Local,
+    External,
+    SelectedSources,
+}
+
+impl From<ScopeArg> for domain::Scope {
+    fn from(value: ScopeArg) -> Self {
+        match value {
+            ScopeArg::All => domain::Scope::All,
+            ScopeArg::Local => domain::Scope::Local,
+            ScopeArg::External => domain::Scope::External,
+            ScopeArg::SelectedSources => domain::Scope::SelectedSources,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+pub enum BlockRuleAction {
+    List,
+    Add {
+        #[arg(value_enum)]
+        rule_type: RuleTypeArg,
+        /// Interpretation depends on `rule_type`: an item id for
+        /// `exact-item`, a tag's normalized value for `tag`, etc. —
+        /// see `domain::BlockRule::target`.
+        target: String,
+        #[arg(long, value_enum, default_value_t = ScopeArg::All)]
+        scope: ScopeArg,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    Remove {
+        block_rule_id: String,
+    },
+    Enable {
+        block_rule_id: String,
+    },
+    Disable {
+        block_rule_id: String,
     },
 }
 

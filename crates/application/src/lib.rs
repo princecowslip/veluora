@@ -2,6 +2,7 @@
 //! `cli` (and, later, `gui`/`tui`) and the `domain`/`database` crates.
 //! Presentation layers call through here — never around it.
 
+pub mod block_rules;
 pub mod collections;
 pub mod comics;
 pub mod context;
@@ -23,6 +24,7 @@ pub mod thumbnails;
 pub mod time_format;
 pub mod user_state;
 
+pub use block_rules::BlockRuleService;
 pub use collections::CollectionService;
 pub use comics::{ComicService, PageSummary};
 pub use context::AppContext;

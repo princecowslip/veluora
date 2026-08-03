@@ -1,3 +1,4 @@
+pub mod block_rules;
 pub mod cache;
 pub mod collections;
 pub mod discover;

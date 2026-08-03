@@ -4,8 +4,8 @@ mod exit_code;
 
 use clap::Parser;
 use cli_args::{
-    Cli, CollectionAction, Command, DbAction, DiagnosticsAction, DownloadAction, FavoriteAction,
-    ItemAction, LibraryAction, PluginAction, SourceAction,
+    BlockRuleAction, Cli, CollectionAction, Command, DbAction, DiagnosticsAction, DownloadAction,
+    FavoriteAction, ItemAction, LibraryAction, PluginAction, SourceAction,
 };
 
 fn main() {
@@ -160,6 +160,31 @@ fn main() {
             } => commands::plugin::registry_add(format, quiet, manifest_path, status),
             PluginAction::RegistrySetStatus { id, status } => {
                 commands::plugin::registry_set_status(format, quiet, id, status)
+            }
+        },
+        Command::BlockRule { action } => match action {
+            BlockRuleAction::List => commands::block_rule::list(format, quiet),
+            BlockRuleAction::Add {
+                rule_type,
+                target,
+                scope,
+                reason,
+            } => commands::block_rule::add(
+                format,
+                quiet,
+                rule_type.into(),
+                target,
+                scope.into(),
+                reason,
+            ),
+            BlockRuleAction::Remove { block_rule_id } => {
+                commands::block_rule::remove(format, quiet, block_rule_id)
+            }
+            BlockRuleAction::Enable { block_rule_id } => {
+                commands::block_rule::set_enabled(format, quiet, block_rule_id, true)
+            }
+            BlockRuleAction::Disable { block_rule_id } => {
+                commands::block_rule::set_enabled(format, quiet, block_rule_id, false)
             }
         },
     };

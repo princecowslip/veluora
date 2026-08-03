@@ -23,12 +23,18 @@ An honest list of what's explicitly out of scope so far, compiled from each mile
 
 ## Content safety and blocking
 
-- `domain::BlockRule` exists and is consulted in exactly one place —
-  `DownloadService`'s eligibility check (Milestone J, "not blocked by an
-  enabled block rule") — but there is no way to create, list, or remove a
-  block rule anywhere: no `local-api` route, no CLI command, and no GUI/TUI
-  screen. `docs/21-content-safety-and-compliance.md`'s user-facing
-  block/review controls describe a system that isn't built yet.
+- `domain::BlockRule` is consulted in one place — `DownloadService`'s
+  eligibility check (Milestone J, "not blocked by an enabled block rule").
+  CRUD now exists via `local-api` (`GET/POST /api/v1/block-rules`,
+  `DELETE /api/v1/block-rules/:id`, `POST .../enable`, `POST .../disable`,
+  see `application::BlockRuleService`/`crates/local-api/src/routes/block_rules.rs`)
+  and the CLI (`veloura block-rule list/add/remove/enable/disable`,
+  `crates/cli/src/commands/block_rule.rs`) — but there is still no GUI or
+  TUI screen for managing rules, so a rule can only be created/removed from
+  the CLI or a direct API call today. `docs/21-content-safety-and-compliance.md`'s
+  broader user-facing block/review controls (a review queue, per-hit
+  blocked/allowed decisions surfaced in the UI, etc.) still describe a
+  system that isn't built yet — only the CRUD surface named above exists.
 - The shipped `SafetyStatus` enum (`domain::media_item`) is a simpler
   4-value model (`Unreviewed`/`Approved`/`Flagged`/`Blocked`) than the
   7-value model `docs/21-content-safety-and-compliance.md` describes.
