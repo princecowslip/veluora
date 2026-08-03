@@ -17,6 +17,23 @@
 
 These remain proposed until recorded as accepted ADRs.
 
+## Decisions resolved by implementation
+
+These were open questions below at planning time; the shipped code has
+since settled them de facto (see `CHANGELOG.md` for the milestone that
+shipped each):
+
+- Core service language: **Rust** (Milestone A).
+- Desktop GUI toolkit: **iced 0.13** (Milestone D).
+- IPC protocol: **loopback-only HTTP `local-api`**, used by CLI/GUI/TUI
+  (Milestone A).
+- Media playback: **controlled external player only** — no embedded
+  playback engine exists or is planned; CLI/GUI/TUI all launch a
+  user-configured external player (`VELOURA_TUI_PLAYER`/GUI settings),
+  matching `KNOWN_ISSUES.md`'s GUI section. Subtitle rendering and hardware
+  decoding are therefore delegated entirely to whatever external player the
+  user has installed, not decided by Veloura itself.
+
 ## Decisions required before implementation
 
 ### Supported operating systems
@@ -29,13 +46,10 @@ Choose:
 - FreeBSD support level
 - CPU architectures
 
-### Core language and framework
+### Packaging and updates
 
 Choose:
 
-- Core service language
-- Desktop GUI toolkit
-- IPC protocol
 - Packaging framework
 - Update mechanism
 
@@ -50,16 +64,6 @@ Decide:
 - What remains visible outside encryption (for example filenames and unencrypted downloads)
 
 Referenced from [20 — Privacy and Security](20-privacy-and-security.md) and ADR-003 in [26 — Architecture Decisions](26-architecture-decisions.md).
-
-### Media playback
-
-Decide:
-
-- Embedded libmpv
-- Controlled external mpv
-- Platform player adapters
-- Subtitle rendering ownership
-- Hardware decoding defaults
 
 ### Connector distribution
 

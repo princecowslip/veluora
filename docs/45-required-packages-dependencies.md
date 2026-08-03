@@ -53,7 +53,27 @@ Veloura does not require OpenImageIO or QR support for the MVP.
 
 ## Shared application dependencies
 
-This is the recommended baseline for the complete project.
+This is the recommended baseline for the complete project, as a
+cross-language design target. The shipped Rust core (`crates/`) resolves
+most of this table through Cargo crates rather than system packages, so
+none of the following need installing to build or run it today:
+
+| Dependency in this table | What the Rust core actually uses instead |
+|---|---|
+| SQLite 3 | `rusqlite` with the `bundled` feature — compiles SQLite from source, no `libsqlite3-dev` needed |
+| OpenSSL or platform TLS | `reqwest` with the `rustls` feature — no system OpenSSL needed |
+| libarchive | The pure-Rust `zip` crate (`crates/media/src/archive.rs`) |
+| libmagic | The pure-Rust `mime_guess` crate |
+| ICU or equivalent | Not used — no ICU dependency exists anywhere in the workspace |
+| OS credential store adapter | Not implemented yet — connector credentials are stored in plain `configuration_json` (see `KNOWN_ISSUES.md`) |
+
+FFmpeg is invoked as an external CLI binary (`ffprobe`/`ffmpeg` on `PATH`,
+checked via `DiagnosticsService`), not linked via `libavformat`/`libavutil`
+dev headers — CI installs the plain `ffmpeg` package, not `-dev` headers.
+
+The table below remains accurate for the C++ TUI's own direct
+dependencies (see "TUI architecture" above) and as the design target for a
+future unified packaging story:
 
 | Dependency | Purpose | Requirement |
 |---|---|---|
@@ -446,7 +466,8 @@ FreeBSD:
 
 ## Dependency update policy
 
-- Track direct dependencies in `assets/dependencies.json` (planned — not yet created).
+- Track direct dependencies in `assets/dependencies.json` — exists today as
+  a minimal stub, populated further as dependencies land.
 - Pin release builds.
 - Review notcurses release notes before updating.
 - Re-run terminal capability tests after every notcurses update.

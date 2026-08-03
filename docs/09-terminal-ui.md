@@ -65,6 +65,9 @@ The first release should treat Linux and macOS as Tier 1. Native Windows packagi
 
 Examples include compatible Kitty, WezTerm, foot, and Sixel-capable terminals.
 
+Not yet implemented — the shipped TUI supports Tier B and Tier C only, so
+cards never attempt to decode or blit an image today.
+
 Features:
 
 - Image thumbnails
@@ -208,14 +211,16 @@ Rules:
 
 - Home
 - Library
-- Discover
 - Collections
-- Queue
-- Downloads
-- Sources
-- Settings
+- Cache
 - Privacy
 - Diagnostics
+- Sources
+- Discover
+- Downloads (includes queueing — there is no separate Queue view)
+
+Settings is not yet built as a TUI view (no meaningful terminal-specific
+settings exist yet).
 
 ## Home
 
@@ -314,9 +319,13 @@ Tab            Next pane
 Shift+Tab      Previous pane
 F1             Home
 F2             Library
-F3             Discover
-F4             Collections
-F5             Downloads
+F3             Collections
+F4             Cache
+F5             Privacy
+F6             Diagnostics
+F7             Sources
+F8             Discover
+F9             Downloads
 ```
 
 ### Navigation

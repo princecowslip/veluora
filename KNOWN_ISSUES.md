@@ -21,6 +21,18 @@ An honest list of what's explicitly out of scope so far, compiled from each mile
 - Quota eviction is oldest-`completed_at`-first only — `docs/17-downloads-cache-storage.md`'s other listed policies (least-recently-opened, oldest-unviewed, per-source limits) aren't implemented, matching `enforce_cache_quota`'s existing single-policy scope.
 - No encrypted downloads directory or opaque file naming option, and no separate "cache vs. permanent download" storage class beyond the `pinned` flag — every completed download is a permanent file under `<data_dir>/downloads/`.
 
+## Content safety and blocking
+
+- `domain::BlockRule` exists and is consulted in exactly one place —
+  `DownloadService`'s eligibility check (Milestone J, "not blocked by an
+  enabled block rule") — but there is no way to create, list, or remove a
+  block rule anywhere: no `local-api` route, no CLI command, and no GUI/TUI
+  screen. `docs/21-content-safety-and-compliance.md`'s user-facing
+  block/review controls describe a system that isn't built yet.
+- The shipped `SafetyStatus` enum (`domain::media_item`) is a simpler
+  4-value model (`Unreviewed`/`Approved`/`Flagged`/`Blocked`) than the
+  7-value model `docs/21-content-safety-and-compliance.md` describes.
+
 ## Plugins
 
 - `crates/plugin-host`'s manifest/permission/registry/sandbox infrastructure exists, but there is no real third-party plugin to install — it was built before Milestone F's connectors existed, so "preview a sandboxed third-party connector" has nothing real to preview yet.

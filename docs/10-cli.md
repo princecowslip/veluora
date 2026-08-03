@@ -53,9 +53,14 @@ veloura library status
 veloura search 'type:video duration:<20m -tag:blocked'
 veloura search 'creator:"Example"' --source local --output json
 veloura browse --source SOURCE_ID --type image
+veloura discover 'query'
 veloura saved-search list
 veloura saved-search create NAME --query '...'
 ```
+
+`veloura discover` is real — it aggregates the local library with every
+enabled connector source in one call (`application::DiscoverService`).
+`saved-search` is not implemented anywhere yet.
 
 ### Items
 
@@ -92,27 +97,28 @@ veloura collection export COLLECTION_ID
 
 ### Queue
 
-```bash
-veloura queue list
-veloura queue add ITEM_ID
-veloura queue remove ITEM_ID
-veloura queue clear
-```
+No standalone queue concept exists anywhere in the domain, application, or
+CLI layer — queueing is part of the Downloads command group below, not a
+separate command.
 
 ### Sources
 
 ```bash
 veloura source list
-veloura source add CONNECTOR_ID
-veloura source configure SOURCE_ID
-veloura source login SOURCE_ID
-veloura source logout SOURCE_ID
-veloura source test SOURCE_ID
-veloura source disable SOURCE_ID
+veloura source add CONNECTOR_ID --name NAME --config CONFIG_JSON
 veloura source remove SOURCE_ID
+veloura source enable SOURCE_ID
+veloura source disable SOURCE_ID
+veloura source health-check SOURCE_ID
+veloura source browse SOURCE_ID --route ROUTE
+veloura source import SOURCE_ID --item SOURCE_ITEM_ID
 ```
 
-Authentication secrets should be read from a secure prompt, file descriptor, or credential manager. Do not accept passwords as normal command arguments.
+Connector configuration (including any API key or Basic-auth credentials)
+is currently passed as opaque `configuration_json` — there is no separate
+`configure`/`login`/`logout`/`test` step or credential-manager integration
+yet. Authentication secrets should still be read from a secure prompt or
+file descriptor rather than a normal command argument where possible.
 
 ### Downloads
 
@@ -122,8 +128,14 @@ veloura download list
 veloura download pause DOWNLOAD_ID
 veloura download resume DOWNLOAD_ID
 veloura download cancel DOWNLOAD_ID
-veloura cache prune
-veloura cache verify
+veloura download remove DOWNLOAD_ID
+veloura download pin DOWNLOAD_ID
+veloura download eligibility ITEM_ID
+veloura download quota
+veloura download enforce-quota
+veloura db cache-status
+veloura db cache-quota
+veloura db cache-enforce-quota
 ```
 
 ### Privacy and safety
@@ -143,8 +155,19 @@ Destructive clearing requires either an interactive confirmation or `--yes`.
 
 ### Plugins
 
+Shipped today (Milestone H — governance/sandbox infrastructure only, no
+real third-party plugin exists to install yet):
+
 ```bash
-veloura plugin list
+veloura plugin validate MANIFEST_PATH
+veloura plugin registry-add MANIFEST_PATH
+veloura plugin registry-list
+veloura plugin registry-set-status PLUGIN_ID STATUS
+```
+
+Not yet implemented — a future plugin-marketplace-style flow:
+
+```bash
 veloura plugin inspect PLUGIN_ID
 veloura plugin install PACKAGE
 veloura plugin disable PLUGIN_ID

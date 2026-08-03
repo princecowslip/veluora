@@ -1,4 +1,4 @@
-# Sample Mock UI Specification
+# Sample UI Specification
 
 ## Overview
 

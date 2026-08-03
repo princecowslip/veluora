@@ -84,25 +84,28 @@ Docs 32, 51, and 52 each describe the same Home/Library/Viewer screens at a diff
 - 49 — Documentation Index (this document)
 - [50 — Project Handoff Checklist](50-project-handoff.md)
 
-## Root documents (planned — not yet created)
-
-This is a documentation-only planning package; no implementation exists yet, so none of the paths below are present in the repository. They are listed here as the intended locations once implementation begins.
+## Root documents
 
 - Project README (`../README.md`)
 - Contributing (`../CONTRIBUTING.md`)
 - Security policy (`../SECURITY.md`)
-- Project status (`../PROJECT_STATUS.md`)
-- Changelog (`../CHANGELOG.md`)
+- Changelog (`../CHANGELOG.md`) — the authoritative, actively maintained
+  record of what has shipped, milestone by milestone
+- Known issues (`../KNOWN_ISSUES.md`) — explicitly tracked, out-of-scope gaps
+- Project status (`../PROJECT_STATUS.md`) — planned, not yet created
 
-## Implementation assets (planned — not yet created)
+## Implementation assets
+
+- `assets/dependencies.json` — exists (a minimal stub populated as
+  dependencies land)
+- `tui/CMakeLists.txt`, `tui/CMakePresets.json`, `tui/src/` — exist; the
+  terminal client is real and built in CI
+- `scripts/install-tui-deps.sh` — exists
+
+Still planned — not yet created:
 
 - `assets/colors.json`
 - `assets/colors.css`
 - `assets/source-presets.json`
 - `assets/taxonomy.json`
 - `assets/ui-preferences.json`
-- `assets/dependencies.json`
-- `tui/CMakeLists.txt`
-- `tui/CMakePresets.json`
-- `tui/src/main.cpp`
-- `scripts/install-tui-deps.sh`

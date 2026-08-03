@@ -4,6 +4,15 @@
 
 This matrix connects major product requirements to design documents, implementation areas, and verification evidence.
 
+The "Verification" column names the intended verification *method* for
+each requirement — it does not assert that verification has already run.
+In particular, per `KNOWN_ISSUES.md`: no automated accessibility testing
+exists yet (no iced accessibility-testing harness), styling is
+functional-first rather than pixel-accurate to `docs/52-sample-ui-spec.md`,
+and no packaging scripts exist yet — so "Screenshot and contrast review,"
+"Keyboard and assistive tests," and "Package installation test" below
+describe what should eventually happen, not evidence already collected.
+
 | Requirement | Primary documents | Implementation area | Verification |
 |---|---|---|---|
 | Local-first operation | 01, 02, 12, 20 | Core service, database, filesystem | Offline end-to-end tests |

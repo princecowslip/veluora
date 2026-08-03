@@ -263,6 +263,20 @@ Motion language:
 - No autoplay previews by default
 - Respect reduced-motion preferences
 
+## Implementation status
+
+The preset catalogue below (Local sources, Personal media servers, Booru
+and image-board APIs, Feeds and catalogues, Browser handoff) is a design
+target. Only four connector types are actually implemented today
+(`crates/connectors/src/`): local filesystem, RSS/Atom feed
+(`FeedConnector`), a `flavor`-configured Danbooru/Gelbooru booru connector
+(`BooruConnector`), and an OPDS 1.x catalog connector (`OpdsConnector`, for
+servers such as Komga/Kavita/Calibre-Web). Jellyfin, Kavita's/Komga's own
+native APIs, Audiobookshelf, WebDAV, S3, e621/e926, Shimmie, custom-JSON
+booru, M3U, HTML import, EPUB import, CBZ/CBR import, and browser-handoff
+templates are all still unbuilt — see `KNOWN_ISSUES.md`'s Connectors
+section.
+
 ## Source preset philosophy
 
 Presets are connector templates, not endorsements.

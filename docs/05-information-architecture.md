@@ -2,14 +2,22 @@
 
 ## Navigation model
 
-The desktop product uses six stable top-level destinations:
+Design target: six stable top-level destinations (Home, Library, Discover,
+Collections, Downloads, Settings). The shipped desktop GUI's actual
+top-level nav is:
 
 1. Home
 2. Library
-3. Discover
-4. Collections
-5. Downloads
-6. Settings
+3. Privacy Center
+4. Sources
+5. Discover
+6. Downloads
+7. Settings
+
+Collections has no dedicated top-level GUI screen today — it's reachable
+via the CLI and the TUI's Collections view (F3), and through
+`application::CollectionService`, but not from the desktop GUI's main
+navigation.
 
 A compact player or reader status area remains available across the application.
 

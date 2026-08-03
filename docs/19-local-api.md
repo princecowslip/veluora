@@ -55,66 +55,114 @@ Streaming results may use server-sent events, WebSocket, or IPC events.
 
 ### Items
 
+Shipped routes (`crates/local-api/src/routes/items.rs`):
+
 ```text
 GET   /items/{id}
-PATCH /items/{id}/metadata
+POST  /items/{id}/favorite
+POST  /items/{id}/pin
 POST  /items/{id}/open
 POST  /items/{id}/progress
-POST  /items/{id}/favorite
+GET   /items/{id}/story
+GET   /items/{id}/pages
+```
+
+There is no `PATCH /items/{id}/metadata` route yet.
+
+### Discover
+
+```text
+POST /discover
+```
+
+Aggregates the local library with every enabled, non-local connector
+source in one call (`application::DiscoverService`, Milestone I).
+
+### Home
+
+```text
+GET /home/continue
 ```
 
 ### Collections
 
+Shipped routes (`crates/local-api/src/routes/collections.rs`):
+
 ```text
 GET    /collections
 POST   /collections
-GET    /collections/{id}
-PATCH  /collections/{id}
 DELETE /collections/{id}
 POST   /collections/{id}/items
 DELETE /collections/{id}/items/{item_id}
 ```
 
+There is no single-resource `GET /collections/{id}` or `PATCH
+/collections/{id}` route yet.
+
 ### Sources
+
+Shipped routes (`crates/local-api/src/routes/sources.rs`):
 
 ```text
 GET    /sources
 POST   /sources
-GET    /sources/{id}
-PATCH  /sources/{id}
+DELETE /sources/{id}
+POST   /sources/{id}/enable
+POST   /sources/{id}/disable
 POST   /sources/{id}/health-check
-POST   /sources/{id}/authenticate
-DELETE /sources/{id}/credentials
+POST   /sources/{id}/browse
+POST   /sources/{id}/import
 ```
 
-Authentication should launch a secure interactive flow rather than accept raw passwords in ordinary JSON where possible.
+There is no single-resource `PATCH /sources/{id}`, `POST
+/sources/{id}/authenticate`, or `DELETE /sources/{id}/credentials` route —
+connector configuration (including any credentials) is passed as opaque
+`configuration_json` on create; there is no separate authenticate step or
+credential-manager integration yet.
 
 ### Downloads
+
+Shipped routes (`crates/local-api/src/routes/downloads.rs`, Milestone J):
 
 ```text
 GET    /downloads
 POST   /downloads
+GET    /downloads/status
+GET    /downloads/quota
+POST   /downloads/enforce-quota
+POST   /downloads/eligibility
 POST   /downloads/{id}/pause
 POST   /downloads/{id}/resume
+POST   /downloads/{id}/cancel
+POST   /downloads/{id}/pin
 DELETE /downloads/{id}
 ```
 
+`add`/`resume` spawn the fetch on `local-api`'s own runtime and return
+`202` immediately, since it's the only long-lived surface that can run a
+download to completion in the background.
+
 ### Privacy
+
+Shipped routes (`crates/local-api/src/routes/privacy.rs`):
 
 ```text
 GET  /privacy/status
-POST /privacy/lock
-POST /privacy/private-session
-POST /privacy/clear
+POST /privacy/verify
 ```
+
+There is no `POST /privacy/lock`, `POST /privacy/private-session`, or
+`POST /privacy/clear` route — those actions aren't exposed over the local
+API today.
 
 ### Blocks
 
-```text
-GET    /blocks
-POST   /blocks
-DELETE /blocks/{id}
-```
+Not implemented. `domain::BlockRule` exists and is consulted inside
+`DownloadService`'s eligibility check (Milestone J), but there is no
+`local-api` route, CLI command, or GUI/TUI surface to create, list, or
+remove a block rule — no CRUD API for blocking exists at all yet. This gap
+is not currently tracked in `KNOWN_ISSUES.md` either; see that file's
+Connectors/Privacy sections for the nearest related entries.
 
 ## Authorization scopes
 

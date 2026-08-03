@@ -1,5 +1,15 @@
 # User-Friendly Workflows
 
+## Implementation status
+
+The "First-run experience" below (adult/safety notice, a 3-way privacy
+profile picker, a playback-integration test step, a source-category step)
+is a design target. The real onboarding
+(`crates/gui/src/screens/onboarding.rs`) is a simpler 4-step flow —
+Welcome, pick a folder, scan, and a privacy summary — with no privacy
+profile choice, no playback test, and no sources step (sources are added
+later from the Sources screen).
+
 ## Design objective
 
 A new user should be able to install Veloura, add a local folder, open media, and create a collection without reading technical documentation.

@@ -123,6 +123,15 @@ veloura browse --source stash --category couples
 
 ## TUI filters
 
+This proposed F1-F6 filter-key layout collides with the TUI's real,
+already-shipped top-level view bindings (F1 Home, F2 Library,
+F3 Collections, F4 Cache, F5 Privacy, F6 Diagnostics, F7 Sources,
+F8 Discover, F9 Downloads — see
+[09 — Terminal UI Specification](09-terminal-ui.md)). It needs a redesign
+(e.g. a modifier chord, or binding filters only within the Library/Discover
+search overlay rather than as global function keys) before it can be
+implemented as written:
+
 ```text
 [F1] Media
 [F2] Categories

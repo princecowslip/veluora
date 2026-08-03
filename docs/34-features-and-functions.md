@@ -1,5 +1,18 @@
 # Features and Functions
 
+## Implementation status
+
+This document is a design target covering the complete intended feature
+set, present-tense throughout, with no shipped/planned distinction. The
+shipped feature set is much smaller — see `CHANGELOG.md` for what exists
+milestone-by-milestone and `KNOWN_ISSUES.md` for explicit gaps. Notably
+unbuilt: the command palette, the simple/advanced mode toggle, saved
+searches, duplicate-review UI, most GUI collection functions (the GUI has
+no top-level Collections screen at all), and most Viewer story features
+(text-to-speech, highlighting, notes). Treat every section below as
+intent, not current behavior, unless cross-checked against the
+CHANGELOG.
+
 ## Purpose
 
 This document defines the complete user-facing and system-facing feature set for Veloura.

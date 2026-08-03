@@ -1,5 +1,14 @@
 # Home Feed and Personalization
 
+## Implementation status
+
+This entire document is a design target with no shipped counterpart. The
+real GUI and TUI Home views are both just two sections — Continue and
+Recently Added — with no feed, no feed tabs, no "Why shown?" explanations,
+no per-source feed settings, and no ranking system. Everything below
+(feed priorities, eligibility, sections) describes intended future
+behavior only.
+
 ## Purpose
 
 The Home feed helps users resume, discover updates, and understand system activity without becoming a noisy or uncontrolled public-content feed.

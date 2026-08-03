@@ -2,6 +2,12 @@
 
 These wireframes are structural references, not final visual designs. [51 — Sample Mock UI Specification](51-sample-mock-ui-spec.md) and [52 — Sample UI Specification](52-sample-ui-spec.md) describe the same Home/Library/Viewer screens at other levels of detail (mock states and interactions, and exact pixel measurements, respectively) — the three documents are complementary, not contradictory.
 
+They also all depict a target state well beyond what's shipped: the real
+GUI/TUI Home is Continue + Recently Added only (no Queue, Pinned
+Collections, Saved Searches, or feed tabs), and the real GUI has no
+top-level Collections screen. See `docs/36-home-feed-and-personalization.md`'s
+implementation-status note and `KNOWN_ISSUES.md` for the current state.
+
 ## Home
 
 ```text

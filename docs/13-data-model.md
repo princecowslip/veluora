@@ -236,17 +236,29 @@ Download
 - id
 - item_id
 - variant_id
+- source_id?
 - state
 - destination
+- temp_path
+- pinned
 - bytes_total?
 - bytes_received
 - checksum_state
+- expected_checksum?
+- checksum_algorithm?
+- etag?
+- last_modified?
 - retry_count
 - created_at
+- updated_at
 - started_at?
 - completed_at?
 - failure_code?
 ```
+
+`pinned` protects a download from cache-quota eviction independently of
+its item's `UserState.pinned` flag (either one is sufficient). `etag`/
+`last_modified` back conditional-range resume requests.
 
 ## Source and connector model
 

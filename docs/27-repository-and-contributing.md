@@ -1,25 +1,22 @@
 # Repository Structure and Contribution Guide
 
-## Proposed repository layout
+## Repository layout
 
 ```text
 /
 ├── README.md
-├── LICENSE
 ├── SECURITY.md
 ├── CONTRIBUTING.md
+├── CHANGELOG.md
+├── KNOWN_ISSUES.md
 ├── docs/
-├── crates-or-packages/
+├── crates/
 │   ├── domain/
 │   ├── application/
 │   ├── database/
 │   ├── media/
-│   ├── search/
-│   ├── connectors/
-│   │   ├── local-files/
-│   │   ├── feed/
-│   │   ├── official-example/
-│   │   └── booru-compatible/
+│   ├── connectors/       # local filesystem, feed, booru, and OPDS connectors
+│   │                      # as modules (feed.rs/booru.rs/opds.rs), not sub-crates
 │   ├── plugin-host/
 │   ├── local-api/
 │   ├── cli/
@@ -33,10 +30,13 @@
 │   └── dependencies.json
 ├── fixtures/
 ├── migrations/
-├── scripts/
-├── packaging/
-└── tests/
+└── scripts/
 ```
+
+`LICENSE` and a dedicated `crates/search` crate do not exist yet.
+`packaging/` and a top-level `tests/` directory were part of an earlier
+proposed layout and were never adopted — tests live alongside their crates
+(`crates/*/tests/` and inline `#[cfg(test)]` modules) instead.
 
 ## Branch policy
 
@@ -74,7 +74,6 @@
 
 A connector pull request must include:
 
-- Manifest
 - Supported domains
 - source authorization basis
 - capability list
@@ -101,6 +100,8 @@ Changes require additional review when they:
 - change deletion behavior
 
 ## Issue templates
+
+No `.github/ISSUE_TEMPLATE/` directory exists yet. The intended template set:
 
 - Bug
 - Feature request
