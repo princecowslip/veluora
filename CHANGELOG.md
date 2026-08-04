@@ -2,6 +2,11 @@
 
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Veloura hasn't cut a versioned release yet — this tracks what each milestone actually shipped. See `KNOWN_ISSUES.md` for what's explicitly out of scope so far.
 
+## Block rule GUI/TUI screens
+
+- New GUI `Block Rules` screen (`crates/gui/src/screens/block_rules.rs`, nav bar button) and TUI `Block Rules` view (`tui/src/views/block_rules_view.h`/`.cpp`, `F10`): list/add/enable/disable/remove a `domain::BlockRule` from either UI, closing the "no GUI or TUI screen for managing rules" gap `KNOWN_ISSUES.md`'s "Content safety and blocking" section flagged. Both mirror the existing Sources screen/view's shape (`crates/gui/src/screens/sources.rs`, `tui/src/views/sources_view.h`/`.cpp`) and call the same `application::BlockRuleService`/`GET`/`POST /api/v1/block-rules*` surface the CLI already used — no backend changes beyond a new `Display` impl on `domain::RuleType`/`Scope` (for the GUI's pick lists).
+- Both surfaces label the five rule types `BlockRule::evaluate` doesn't implement yet (`Domain`/`FileHash`/`PerceptualHash`/`Series`/`Query`) as not-yet-enforced rather than presenting all nine types as equally functional.
+
 ## Block rule CRUD
 
 - New `application::BlockRuleService` (create/list/remove/set_enabled) is the first code to write to the `block_rules` table — previously `DownloadService::is_blocked` was the only consumer, and there was no way to create, list, or remove a rule anywhere (see `KNOWN_ISSUES.md`).

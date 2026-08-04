@@ -46,6 +46,7 @@ App::App(std::string base_url, std::string token) : api_(std::move(base_url), st
   privacy_view_ = std::make_unique<PrivacyView>();
   diagnostics_view_ = std::make_unique<DiagnosticsView>();
   sources_view_ = std::make_unique<SourcesView>();
+  block_rules_view_ = std::make_unique<BlockRulesView>();
   discover_view_ = std::make_unique<DiscoverView>();
   downloads_view_ = std::make_unique<DownloadsView>();
   item_detail_view_ = std::make_unique<ItemDetailView>();
@@ -116,6 +117,8 @@ View* App::active_view() {
       return diagnostics_view_.get();
     case ViewId::Sources:
       return sources_view_.get();
+    case ViewId::BlockRules:
+      return block_rules_view_.get();
     case ViewId::Discover:
       return discover_view_.get();
     case ViewId::Downloads:
@@ -195,7 +198,7 @@ void App::render_frame() {
   } else if (help_visible_) {
     print_plain(content_, 0, 0, "Keybindings");
     print_plain(content_, 2, 0,
-                "F1 Home   F2 Library   F3 Collections   F4 Cache   F5 Privacy   F6 Diagnostics   F7 Sources   F8 Discover   F9 Downloads");
+                "F1 Home   F2 Library   F3 Collections   F4 Cache   F5 Privacy   F6 Diagnostics   F7 Sources   F8 Discover   F9 Downloads   F10 Block Rules");
     print_plain(content_, 3, 0, "j/k or Up/Down   navigate     Enter/Space   open/select     Esc   back / cancel");
     print_plain(content_, 4, 0, "/   search (Library)          f   favorite (Item)         p   pin (Item)");
     print_plain(content_, 5, 0, "c   add to collection (Item)  Ctrl+L   lock                Q   quit");
@@ -297,6 +300,10 @@ void App::handle_input(const ncinput& input) {
   }
   if (input.id == NCKEY_F09) {
     switch_view(ViewId::Downloads);
+    return;
+  }
+  if (input.id == NCKEY_F10) {
+    switch_view(ViewId::BlockRules);
     return;
   }
 }

@@ -1,3 +1,4 @@
+pub mod block_rules;
 pub mod discover;
 pub mod downloads;
 pub mod home;

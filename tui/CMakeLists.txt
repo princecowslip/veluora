@@ -34,6 +34,7 @@ add_executable(veloura-tui
   src/views/sources_view.cpp
   src/views/discover_view.cpp
   src/views/downloads_view.cpp
+  src/views/block_rules_view.cpp
 )
 
 target_compile_options(veloura-tui PRIVATE -Wall -Wextra)
