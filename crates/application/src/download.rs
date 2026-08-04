@@ -28,6 +28,7 @@ use rusqlite::{params, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
+use crate::block_rules::row_to_block_rule;
 use crate::context::AppContext;
 use crate::error::{AppError, Result};
 use crate::privacy::PrivacyService;
@@ -1170,50 +1171,6 @@ fn row_to_download(row: &Row) -> rusqlite::Result<Download> {
         last_modified: row.get(19)?,
         updated_at: updated_at.and_then(|s| from_rfc3339(&s)),
     })
-}
-
-fn row_to_block_rule(row: &Row) -> rusqlite::Result<domain::BlockRule> {
-    let id: String = row.get(0)?;
-    let rule_type: String = row.get(1)?;
-    let scope: String = row.get(3)?;
-    let created_at: String = row.get(5)?;
-    Ok(domain::BlockRule {
-        id: domain::BlockRuleId(parse_uuid(&id)?),
-        rule_type: rule_type_from_str(&rule_type),
-        target: row.get(2)?,
-        scope: scope_from_str(&scope),
-        reason: row.get(4)?,
-        created_at: from_rfc3339(&created_at).unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
-        enabled: row.get::<_, i64>(6)? != 0,
-    })
-}
-
-fn rule_type_from_str(s: &str) -> domain::RuleType {
-    use domain::RuleType::*;
-    match s {
-        "exact_item" => ExactItem,
-        "source" => Source,
-        "creator" => Creator,
-        "series" => Series,
-        "tag" => Tag,
-        "domain" => Domain,
-        "file_hash" => FileHash,
-        "perceptual_hash" => PerceptualHash,
-        // `Query` always evaluates to non-matching (see
-        // `BlockRule::evaluate`), the safest fallback for a rule type
-        // this build doesn't recognize.
-        _ => Query,
-    }
-}
-
-fn scope_from_str(s: &str) -> domain::Scope {
-    use domain::Scope::*;
-    match s {
-        "local" => Local,
-        "external" => External,
-        "selected_sources" => SelectedSources,
-        _ => All,
-    }
 }
 
 fn state_to_str(state: DownloadState) -> &'static str {

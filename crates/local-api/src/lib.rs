@@ -73,6 +73,7 @@ pub fn recover_and_resume_downloads(
 pub fn build_router(state: ApiState) -> Router {
     let protected = Router::new()
         .route("/api/v1/diagnostics/summary", get(diagnostics_summary))
+        .merge(routes::block_rules::router())
         .merge(routes::library::router())
         .merge(routes::search::router())
         .merge(routes::discover::router())

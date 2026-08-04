@@ -1146,3 +1146,77 @@ async fn unauthenticated_requests_to_download_routes_are_rejected() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn block_rules_lifecycle_via_http() {
+    let (state, token, _media_dir) = test_state().await;
+
+    let (status, rule) = call(
+        &state,
+        &token,
+        "POST",
+        "/api/v1/block-rules",
+        Some(json!({
+            "rule_type": "tag",
+            "target": "blocked-tag",
+            "scope": "all",
+            "reason": "test rule",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(rule["enabled"], true);
+    let rule_id = rule["id"].as_str().unwrap().to_string();
+
+    let (status, rules) = call(&state, &token, "GET", "/api/v1/block-rules", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(rules.as_array().unwrap().len(), 1);
+
+    let (status, _) = call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/block-rules/{rule_id}/disable"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = call(
+        &state,
+        &token,
+        "POST",
+        &format!("/api/v1/block-rules/{rule_id}/enable"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = call(
+        &state,
+        &token,
+        "DELETE",
+        &format!("/api/v1/block-rules/{rule_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, rules) = call(&state, &token, "GET", "/api/v1/block-rules", None).await;
+    assert!(rules.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn unauthenticated_requests_to_block_rule_routes_are_rejected() {
+    let (state, _token, _media_dir) = test_state().await;
+    let response = build_router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/block-rules")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}

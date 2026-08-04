@@ -867,6 +867,80 @@ fn source_add_list_enable_disable_and_remove_round_trip() {
 }
 
 #[test]
+fn block_rule_add_list_enable_disable_and_remove_round_trip() {
+    let (mut cmd, home) = isolated_cmd();
+    let output = cmd
+        .args([
+            "--output",
+            "json",
+            "block-rule",
+            "add",
+            "tag",
+            "blocked-tag",
+            "--reason",
+            "test rule",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    let rule_id = json["id"].as_str().unwrap().to_string();
+
+    let env_pair = |c: &mut Command| {
+        c.env("HOME", home.path());
+        c.env("XDG_DATA_HOME", home.path().join("data"));
+    };
+
+    let mut list_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut list_cmd);
+    list_cmd
+        .arg("block-rule")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("blocked-tag"));
+
+    let mut disable_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut disable_cmd);
+    disable_cmd
+        .arg("block-rule")
+        .arg("disable")
+        .arg(&rule_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("disabled"));
+
+    let mut enable_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut enable_cmd);
+    enable_cmd
+        .arg("block-rule")
+        .arg("enable")
+        .arg(&rule_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("enabled"));
+
+    let mut remove_cmd = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut remove_cmd);
+    remove_cmd
+        .arg("block-rule")
+        .arg("remove")
+        .arg(&rule_id)
+        .assert()
+        .success();
+
+    let mut list_cmd2 = Command::cargo_bin("veloura").unwrap();
+    env_pair(&mut list_cmd2);
+    list_cmd2
+        .arg("block-rule")
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no block rules configured"));
+}
+
+#[test]
 fn source_health_check_and_browse_for_the_local_connector() {
     let (mut cmd, home, media) = isolated_cmd_with_media_dir();
     std::fs::write(media.path().join("clip.mp4"), b"fake video bytes").unwrap();
