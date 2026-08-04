@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -18,6 +20,27 @@ pub enum RuleType {
     Query,
 }
 
+/// Presentational label for UI pick lists — orthogonal to the `serde`
+/// wire format above. `Series`/`Domain`/`FileHash`/`PerceptualHash`/`Query`
+/// are flagged as not-yet-enforced since [`BlockRule::evaluate`] always
+/// treats them as non-matching today.
+impl fmt::Display for RuleType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::ExactItem => "Exact item",
+            Self::Source => "Source",
+            Self::Creator => "Creator",
+            Self::Series => "Series (not enforced yet)",
+            Self::Tag => "Tag",
+            Self::Domain => "Domain (not enforced yet)",
+            Self::FileHash => "File hash (not enforced yet)",
+            Self::PerceptualHash => "Perceptual hash (not enforced yet)",
+            Self::Query => "Saved query (not enforced yet)",
+        };
+        write!(f, "{name}")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Scope {
@@ -25,6 +48,20 @@ pub enum Scope {
     Local,
     External,
     SelectedSources,
+}
+
+/// Presentational label for UI pick lists — orthogonal to the `serde`
+/// wire format above.
+impl fmt::Display for Scope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::All => "All",
+            Self::Local => "Local sources only",
+            Self::External => "External sources only",
+            Self::SelectedSources => "Selected sources",
+        };
+        write!(f, "{name}")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

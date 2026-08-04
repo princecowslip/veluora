@@ -8,6 +8,7 @@
 
 #include "api_client.h"
 #include "capability.h"
+#include "views/block_rules_view.h"
 #include "views/cache_view.h"
 #include "views/collections_view.h"
 #include "views/diagnostics_view.h"
@@ -30,6 +31,7 @@ enum class ViewId {
   Privacy,
   Diagnostics,
   Sources,
+  BlockRules,
   Discover,
   Downloads,
   ItemDetail,
@@ -76,6 +78,7 @@ class App {
   std::unique_ptr<PrivacyView> privacy_view_;
   std::unique_ptr<DiagnosticsView> diagnostics_view_;
   std::unique_ptr<SourcesView> sources_view_;
+  std::unique_ptr<BlockRulesView> block_rules_view_;
   std::unique_ptr<DiscoverView> discover_view_;
   std::unique_ptr<DownloadsView> downloads_view_;
   std::unique_ptr<ItemDetailView> item_detail_view_;

@@ -27,11 +27,12 @@ An honest list of what's explicitly out of scope so far, compiled from each mile
   eligibility check (Milestone J, "not blocked by an enabled block rule").
   CRUD now exists via `local-api` (`GET/POST /api/v1/block-rules`,
   `DELETE /api/v1/block-rules/:id`, `POST .../enable`, `POST .../disable`,
-  see `application::BlockRuleService`/`crates/local-api/src/routes/block_rules.rs`)
-  and the CLI (`veloura block-rule list/add/remove/enable/disable`,
-  `crates/cli/src/commands/block_rule.rs`) — but there is still no GUI or
-  TUI screen for managing rules, so a rule can only be created/removed from
-  the CLI or a direct API call today. `docs/21-content-safety-and-compliance.md`'s
+  see `application::BlockRuleService`/`crates/local-api/src/routes/block_rules.rs`),
+  the CLI (`veloura block-rule list/add/remove/enable/disable`,
+  `crates/cli/src/commands/block_rule.rs`), a GUI screen
+  (`crates/gui/src/screens/block_rules.rs`), and a TUI view
+  (`tui/src/views/block_rules_view.h`/`.cpp`, `F10`) — so a rule can now be
+  managed from the CLI, GUI, or TUI. `docs/21-content-safety-and-compliance.md`'s
   broader user-facing block/review controls (a review queue, per-hit
   blocked/allowed decisions surfaced in the UI, etc.) still describe a
   system that isn't built yet — only the CRUD surface named above exists.
